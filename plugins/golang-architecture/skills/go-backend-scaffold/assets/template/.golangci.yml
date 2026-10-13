@@ -1,0 +1,37 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard # errcheck, govet, ineffassign, staticcheck, unused
+  enable:
+    - bodyclose     # unclosed HTTP response bodies leak connections
+    - contextcheck  # functions that drop the caller's context
+    - errorlint     # errors.Is/As instead of == on wrapped errors
+    - gocritic
+    - gosec         # common security mistakes
+    - misspell
+    - nilerr        # returning nil when err != nil
+    - noctx         # HTTP requests without a context (no deadline, no tracing)
+    - revive
+    - rowserrcheck  # unchecked sql.Rows.Err()
+    - sqlclosecheck # unclosed sql.Rows / sql.Stmt
+    - unparam
+  exclusions:
+    presets:
+      - comments
+      - common-false-positives
+      - std-error-handling
+    rules:
+      - path: _test\.go
+        linters: [bodyclose, gosec, noctx, unparam]
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - example.com/goservice

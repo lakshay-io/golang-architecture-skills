@@ -1,0 +1,5 @@
+.DS_Store
+bin/
+coverage.out
+# claude plugin eval output
+**/evals/results/

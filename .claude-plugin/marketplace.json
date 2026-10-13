@@ -1,0 +1,15 @@
+{
+  "name": "golang-architecture-skills",
+  "description": "Claude Code skills for building Go backend services on one shared, production-grade architecture.",
+  "owner": {
+    "name": "lakshay-io",
+    "url": "https://github.com/lakshay-io"
+  },
+  "plugins": [
+    {
+      "name": "golang-architecture",
+      "source": "./plugins/golang-architecture",
+      "description": "Scaffold and extend Go backend services: Gin, ports-and-adapters layout, New Relic, slog, graceful shutdown, tested from day one."
+    }
+  ]
+}

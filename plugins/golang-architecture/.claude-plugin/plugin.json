@@ -1,0 +1,20 @@
+{
+  "name": "golang-architecture",
+  "version": "1.0.0",
+  "description": "Scaffold and extend Go backend services: Gin, ports-and-adapters layout, New Relic, slog, graceful shutdown, tested from day one.",
+  "author": {
+    "name": "lakshay-io",
+    "url": "https://github.com/lakshay-io"
+  },
+  "homepage": "https://github.com/lakshay-io/golang-architecture-skills",
+  "repository": "https://github.com/lakshay-io/golang-architecture-skills",
+  "keywords": [
+    "go",
+    "golang",
+    "backend",
+    "gin",
+    "newrelic",
+    "architecture",
+    "scaffold"
+  ]
+}

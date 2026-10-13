@@ -1,0 +1,88 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PLUGIN_DIR: plugins/golang-architecture
+  TEMPLATE_DIR: plugins/golang-architecture/skills/go-backend-scaffold/assets/template
+  CLAUDE_CODE_VERSION: 2.1.296
+
+jobs:
+  manifests:
+    name: Plugin manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Claude Code
+        run: npm install --global "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+      - name: Validate marketplace and plugin
+        run: |
+          claude plugin validate .
+          claude plugin validate "$PLUGIN_DIR" --strict
+
+  template:
+    name: Template (verify + lint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ env.TEMPLATE_DIR }}/go.mod
+          cache-dependency-path: ${{ env.TEMPLATE_DIR }}/go.sum
+      - name: make verify
+        working-directory: ${{ env.TEMPLATE_DIR }}
+        run: make verify
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.14.0
+          working-directory: ${{ env.TEMPLATE_DIR }}
+
+  scaffold:
+    name: Scaffold a service end to end
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ${{ env.TEMPLATE_DIR }}/go.mod
+          cache-dependency-path: ${{ env.TEMPLATE_DIR }}/go.sum
+      - name: Generate a service
+        run: python3 "$PLUGIN_DIR/skills/go-backend-scaffold/scripts/scaffold.py" "$RUNNER_TEMP/ci-service" --module github.com/example/ci-service
+      - name: make verify in the generated service
+        working-directory: ${{ runner.temp }}/ci-service
+        run: make verify
+
+  version-bump:
+    name: Plugin version bumped
+    if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Require a version bump when the plugin changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if git diff --quiet "$BASE_SHA" HEAD -- "$PLUGIN_DIR"; then
+            echo "Plugin unchanged; no version bump needed."
+            exit 0
+          fi
+          manifest="$PLUGIN_DIR/.claude-plugin/plugin.json"
+          old=$(git show "$BASE_SHA:$manifest" 2>/dev/null | jq -r '.version // empty' || true)
+          new=$(jq -r '.version // empty' "$manifest")
+          if [ -n "$old" ] && [ "$old" = "$new" ]; then
+            echo "::error file=$manifest::The plugin changed but its version is still $new. Bump it (semver) so teammates receive the update."
+            exit 1
+          fi
+          echo "Plugin version: ${old:-none} -> $new"
