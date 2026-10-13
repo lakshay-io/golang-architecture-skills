@@ -1,0 +1,147 @@
+# Integrating the skill into Claude Code
+
+This guide covers how to add the `go-backend-scaffold` skill to your Claude Code, check it works, keep it updated, and roll it out to a whole team. Setup takes about two minutes and is done once per machine.
+
+The skill is shipped as a plugin (`golang-architecture`) from this repository, which acts as a plugin marketplace (`golang-architecture-skills`). Claude Code downloads it, keeps it updated, and loads the skill in every session.
+
+## 1. Prerequisites
+
+| Tool | Why | Check |
+|---|---|---|
+| Claude Code (recent version) | Plugins and marketplaces | `claude --version` |
+| git | Claude Code clones the marketplace with it | `git --version` |
+| Python 3 | The skill's `scaffold.py` generates the service | `python3 --version` |
+| make | Generated services use a Makefile | `make --version` |
+| Go (any recent version) | Building generated services. They pin Go 1.26, and an older Go downloads that toolchain automatically on first build, which needs network. | `go version` |
+
+The repository is public, so you don't need GitHub credentials.
+
+## 2. Install
+
+### Option A: inside Claude Code
+
+Run these two commands in any Claude Code session:
+
+```
+/plugin marketplace add lakshay-io/golang-architecture-skills
+/plugin install golang-architecture@golang-architecture-skills
+```
+
+The install command asks where to install the plugin. Choose **user scope** to have it in every project on your machine.
+
+### Option B: from a terminal
+
+```sh
+claude plugin marketplace add lakshay-io/golang-architecture-skills
+claude plugin install golang-architecture@golang-architecture-skills
+```
+
+`install` uses user scope by default. Add `--scope project` to install it only for the current repository.
+
+### Load it
+
+Start a new Claude Code session, or run `/reload-plugins` in the current one.
+
+> **Did you previously copy the skill by hand?** Delete `~/.claude/skills/go-backend-scaffold/`. If you don't, the old copy and the plugin both load and compete.
+
+## 3. Check it works
+
+1. **The plugin is installed:**
+
+   ```sh
+   claude plugin list
+   ```
+
+   `golang-architecture@golang-architecture-skills` should be listed and enabled. In a session you can also open `/plugin` and look under **Installed**.
+
+2. **The skill is available.** In a session, type `/golang-architecture:go-backend-scaffold`. It should autocomplete.
+
+3. **Try it.** In an empty folder, ask:
+
+   > Create a new Go service called demo-service with module github.com/your-org/demo-service.
+
+   Claude should load the skill, generate the service and run `make verify`. The first time, Claude Code asks for permission to run `scaffold.py` and `make`; approve both.
+
+## 4. Use it
+
+The skill triggers on its own when your request matches. You don't need to name it:
+
+| You say | What happens |
+|---|---|
+| *"Create a new Go service called notification-service."* | Generates the full architecture (no business features) and verifies it builds and its tests pass |
+| *"Set up our standard Go architecture in this repo."* | Infers the module path from the git remote, generates into the repo, and merges your existing README |
+| *"Add an orders module to this service."* | Adds a domain module following `docs/ADDING_A_MODULE.md`: domain package, storage adapter, handler, wiring and tests |
+| *"Check this Go service against our architecture standard."* | Audits the service and proposes an incremental migration, ordered by production risk |
+
+To invoke it explicitly, use `/golang-architecture:go-backend-scaffold`.
+
+Every generated service ships its own `CLAUDE.md` and `docs/`, so later Claude sessions in that service follow the same rules automatically.
+
+## 5. Get updates
+
+A new release reaches you only when its `version` in `plugin.json` is bumped (CI enforces the bump).
+
+- **Automatic (recommended):** open `/plugin` → **Marketplaces** → `golang-architecture-skills` → **Enable auto-update**. Claude Code checks for updates in the background, and new versions load in your next session.
+- **Manual:**
+
+  ```sh
+  claude plugin marketplace update golang-architecture-skills         # refresh the catalog
+  claude plugin update golang-architecture@golang-architecture-skills # update the plugin
+  ```
+
+  Restart Claude Code to apply the update.
+
+## 6. Roll it out to a whole team
+
+### Per repository: zero commands for teammates
+
+Commit this as `.claude/settings.json` in each backend repository. If the file already exists, merge in these two keys:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "golang-architecture-skills": {
+      "source": { "source": "github", "repo": "lakshay-io/golang-architecture-skills" },
+      "autoUpdate": true
+    }
+  },
+  "enabledPlugins": {
+    "golang-architecture@golang-architecture-skills": true
+  }
+}
+```
+
+When a teammate opens the repo in Claude Code and accepts the folder trust prompt, the marketplace is registered and the plugin is enabled for them.
+
+### Organization-wide
+
+Admins can push the same two keys through managed settings, so every developer gets the plugin without touching a repository. The options are:
+
+- server-managed settings (claude.ai → Organization settings → Claude Code);
+- MDM;
+- a `managed-settings.json` file on each machine.
+
+See the [Claude Code managed settings documentation](https://code.claude.com/docs/en/managed-settings).
+
+## 7. Uninstall
+
+```sh
+claude plugin uninstall golang-architecture@golang-architecture-skills
+claude plugin marketplace remove golang-architecture-skills
+```
+
+## 8. Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `marketplace add` fails to clone | Claude Code tries SSH first for `owner/repo`. If you have no GitHub SSH key, set `CLAUDE_CODE_PLUGIN_PREFER_HTTPS=1`, or run `claude plugin marketplace add https://github.com/lakshay-io/golang-architecture-skills.git`. |
+| The skill doesn't trigger | Start a new session or run `/reload-plugins`, then invoke `/golang-architecture:go-backend-scaffold` explicitly. Check `claude plugin list` shows the plugin enabled. |
+| Two copies of the skill appear | Delete the hand-copied `~/.claude/skills/go-backend-scaffold/`. |
+| You don't get a fix that was merged | It's delivered only after a version bump. Run the manual update in section 5 and restart. |
+| `make verify` is slow the first time | Go is downloading the 1.26 toolchain and modules. Later builds use the cache. |
+| `make verify` fails behind a proxy or offline | Go needs `proxy.golang.org` and `sum.golang.org`, or your company's `GOPROXY`. |
+| Production boot fails with a New Relic error | Intended: production requires `NEW_RELIC_LICENSE_KEY`. Set it, or use `APP_ENV=staging`/`local` outside production. |
+
+## 9. Security
+
+A plugin runs on your machine with your permissions. This one runs `scaffold.py` and `make`. Changes to this repository go through review (see [CODEOWNERS](.github/CODEOWNERS)) and CI. With auto-update on, you receive each reviewed release automatically. If you'd rather review releases yourself, leave auto-update off and update manually.

@@ -33,6 +33,8 @@ It passes `make verify` from the first commit: gofmt, vet, race-enabled tests an
 
 ## Install (once per developer)
 
+The full guide, covering prerequisites, checking it works, updates, team rollout and troubleshooting, is in **[INTEGRATION.md](INTEGRATION.md)**. The short version:
+
 In Claude Code:
 
 ```
