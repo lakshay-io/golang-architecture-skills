@@ -31,7 +31,7 @@ import (
 var configureOnce sync.Once
 
 // ConfigureBinding applies process-wide Gin binding settings exactly once:
-// validation errors are reported by their wire name ("next_cursor"), not the
+// validation errors are reported by their wire name ("nextCursor"), not the
 // Go field name ("NextCursor"), and Gin's own JSON binding (if anyone calls
 // c.ShouldBindJSON directly) still rejects unknown fields.
 func ConfigureBinding() {
