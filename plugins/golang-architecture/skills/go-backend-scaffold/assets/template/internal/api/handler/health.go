@@ -3,10 +3,11 @@ package handler
 import (
 	"log/slog"
 	"net/http"
-	"slices"
 
 	"github.com/gin-gonic/gin"
 
+	"example.com/goservice/internal/api/response"
+	"example.com/goservice/internal/platform/apperr"
 	"example.com/goservice/internal/platform/health"
 )
 
@@ -17,6 +18,11 @@ const (
 
 // ProbeRoutes are excluded from the access log.
 var ProbeRoutes = []string{LivePath, ReadyPath}
+
+var (
+	errNotReady = apperr.Unavailable("not_ready", "Service is not ready")
+	errDegraded = apperr.Unavailable("degraded", "A dependency is unavailable")
+)
 
 type Health struct {
 	readiness *health.Readiness
@@ -35,24 +41,23 @@ func (h *Health) Register(r gin.IRouter) {
 // live never checks dependencies: a database outage must not make the
 // orchestrator restart every replica at once.
 func (h *Health) live(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	response.Success(c, http.StatusOK, "live", "Service is running", nil)
 }
 
 func (h *Health) ready(c *gin.Context) {
 	ok, failed := h.readiness.Status(c.Request.Context())
 	switch {
 	case ok:
-		c.JSON(http.StatusOK, gin.H{"status": "ready"})
+		response.Success(c, http.StatusOK, "ready", "Service is ready", nil)
 	case len(failed) == 0:
-		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
+		response.Error(c, errNotReady)
 	default:
 		// Error text can name internal hosts: log it, return only check names.
-		names := make([]string, 0, len(failed))
+		details := make(map[string]string, len(failed))
 		for name, msg := range failed {
-			names = append(names, name)
+			details[name] = "failed"
 			h.log.WarnContext(c.Request.Context(), "readiness check failed", slog.String("check", name), slog.String("err", msg))
 		}
-		slices.Sort(names)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "degraded", "failed": names})
+		response.Error(c, errDegraded.WithDetails(details))
 	}
 }

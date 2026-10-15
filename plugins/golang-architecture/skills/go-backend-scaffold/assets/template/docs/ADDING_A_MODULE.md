@@ -174,8 +174,8 @@ func (h *OrderHandler) Register(r gin.IRouter) {
 type orderResponse struct {
 	ID        string    `json:"id"`
 	Version   int64     `json:"version"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 func (h *OrderHandler) get(c *gin.Context) error {
@@ -183,7 +183,8 @@ func (h *OrderHandler) get(c *gin.Context) error {
 	if err != nil {
 		return err // response.Error maps ErrNotFound → 404 with code order_not_found
 	}
-	c.JSON(http.StatusOK, orderResponse{ID: o.ID, Version: o.Version, CreatedAt: o.CreatedAt, UpdatedAt: o.UpdatedAt})
+	// The standard body: {"success":true,"status":200,"code":"order_found","message":…,"data":{…},"requestId":…}
+	response.Success(c, http.StatusOK, "order_found", "Order found", orderResponse{ID: o.ID, Version: o.Version, CreatedAt: o.CreatedAt, UpdatedAt: o.UpdatedAt})
 	return nil
 }
 ```
@@ -211,7 +212,8 @@ New settings, such as the DSN, go into `internal/config` (typed, validated, and 
 - [ ] `internal/domain/order` imports only the standard library and `platform/apperr`.
 - [ ] Errors are `apperr` sentinels with stable codes; adapters map driver errors to them.
 - [ ] `ctx` flows from `c.Request.Context()` through the service into every query or call.
-- [ ] Wire DTOs are separate from the entity; times are RFC 3339 UTC; fields are snake_case.
+- [ ] Wire DTOs are separate from the entity; times are RFC 3339 UTC; fields are camelCase.
+- [ ] Successes render through `response.Success` with a stable `code`; failures `return err`. No handler calls `c.JSON`.
 - [ ] The datastore uses its New Relic integration; outbound HTTP uses `platform/httpclient`.
 - [ ] Adapters with connections register a readiness check and a closer.
 - [ ] Wiring happens only in `internal/app`.

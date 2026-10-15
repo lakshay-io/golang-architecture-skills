@@ -17,7 +17,7 @@ internal/
   api/                 HTTP transport (Gin)
     router.go          engine, middleware order, route mounting, http.Server
     middleware/        request id, New Relic, access log, recovery, limits, timeout
-    response/          error envelope + domain-error → HTTP-status mapping
+    response/          the one response body (Success, Error) + domain-error → HTTP-status mapping
     handler/           one file per module: bind → call service → render
   domain/<module>/     entities, invariants, use cases (Service), ports (interfaces)
   storage/<driver>/    adapters implementing domain ports (postgres, mongo, redis…)
@@ -62,7 +62,7 @@ The order is load-bearing, and `internal/api/router.go` explains why at each ste
 Inside a handler:
 1. Bind and validate the wire format (`handler.BindJSON` / `BindQuery`).
 2. Call the service with `c.Request.Context()`.
-3. Render the result, or `return err`.
+3. Render the result with `response.Success`, or `return err`.
 
 `handler.Wrap` sends every error to `response.Error`, which:
 - maps `apperr.Kind` to an HTTP status;
@@ -74,7 +74,7 @@ Inside a handler:
 - **Domain errors.** They are `apperr` sentinels with a stable `Code` that clients can switch on, e.g. `apperr.NotFound("order_not_found", "order not found")`.
 - **Add context as an error passes upward:** `fmt.Errorf("load order %s: %w", id, err)`. Sentinels still match with `errors.Is`.
 - **Log once, at the edge.** Inner layers return errors and the access log records them once. Logging at every layer creates duplicate, context-free noise.
-- **Every error response goes through `response.Error`.** Never write an error body by hand: New Relic's error reporting and the access log both depend on it.
+- **Every error response goes through `response.Error`.** Never write an error body by hand: New Relic's error reporting and the access log both depend on it. Every success goes through `response.Success`, so both share one body shape (see API conventions).
 
 ## Context, cancellation and concurrency
 
@@ -99,7 +99,7 @@ Inside a handler:
   - Retry only idempotent operations, with exponential backoff and jitter.
   - Make POSTs with side effects idempotent (idempotency key, unique constraint, upsert), because load balancers, clients and queues all retry.
 - **Backpressure.** Bound every queue and pool. When saturated, answer 429 or 503 quickly rather than queueing without limit.
-- **Pagination** uses an opaque keyset cursor (`?limit=&cursor=` → `next_cursor`), with page size capped. Never use `OFFSET` on large tables.
+- **Pagination** uses an opaque keyset cursor (`?limit=&cursor=` → `nextCursor`), with page size capped. Never use `OFFSET` on large tables.
 - **IDs** are UUIDv7, generated in the service:
   - they are time-ordered, so database index inserts stay local;
   - replicas don't need to coordinate to generate them.
@@ -151,13 +151,18 @@ Inside a handler:
 ## API conventions
 
 - **Paths:** routes are versioned under `/v1`. A breaking change ships as `/v2` next to `/v1`. Resource names are plural nouns.
-- **JSON:** fields are `snake_case`; timestamps are RFC 3339 in UTC.
+- **JSON:** fields are `camelCase`; timestamps are RFC 3339 in UTC.
 - **Status codes:**
   - Create: `201` with a `Location` header.
   - Delete: `204`.
   - Partial update: `PATCH` carrying the `version` the client last read; a stale version gets `409`.
-- **Errors** always use the envelope: `{"error":{"code","message","details","request_id"}}`.
-- **Validation is split by responsibility:**
+- **Every response, success or failure, has one body shape**, the same in every service built on this base:
+  - `{"success","status","code","message","data","requestId"}` on success;
+  - `{"success","status","code","message","details","requestId"}` on failure.
+  - `success`, `status`, `code`, `message` and `requestId` are always there. `data` is on every success and never on a failure; `details` only on a failure about specific fields.
+  - Handlers render a success with `response.Success(c, status, code, message, data)` and `return err` for a failure. Nothing calls `c.JSON` directly.
+- **Validation is split by responsibility, and none of it lives in storage**, so switching databases never touches it:
+  - JSON bodies are decoded with `encoding/json/v2` (`handler.BindJSON`). It rejects duplicate keys, keys in a different case, unknown fields, invalid UTF-8 and data after the object. Go's older `encoding/json` accepts all of them, and attackers use that to make a proxy and the service read the same request differently.
   - Binding tags check the wire shape: presence, types, ranges.
   - The domain checks business invariants, whatever transport the call came from.
 

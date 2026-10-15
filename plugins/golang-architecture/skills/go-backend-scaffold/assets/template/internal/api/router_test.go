@@ -123,13 +123,16 @@ func (f fixture) do(method, path, body string) *httptest.ResponseRecorder {
 	return f.serve(req)
 }
 
-func decodeError(t *testing.T, rec *httptest.ResponseRecorder) response.Payload {
+func decodeBody(t *testing.T, rec *httptest.ResponseRecorder) response.Body {
 	t.Helper()
-	var env response.Envelope
-	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
-		t.Fatalf("response is not the error envelope: %v: %s", err, rec.Body.String())
+	var b response.Body
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil {
+		t.Fatalf("response is not the standard body: %v: %s", err, rec.Body.String())
 	}
-	return env.Error
+	if b.Status != rec.Code || b.Success != (rec.Code < 300) || b.Code == "" || b.Message == "" {
+		t.Fatalf("body does not match its status %d: %s", rec.Code, rec.Body.String())
+	}
+	return b
 }
 
 func TestErrorEnvelope(t *testing.T) {
@@ -151,6 +154,10 @@ func TestErrorEnvelope(t *testing.T) {
 		{"missing field", "POST", "/v1/echo", `{"count":1}`, 400, "validation_failed", "name"},
 		{"field too long", "POST", "/v1/echo", `{"name":"toolong"}`, 400, "validation_failed", "name"},
 		{"unknown field", "POST", "/v1/echo", `{"name":"a","bogus":1}`, 400, "unknown_field", ""},
+		{"duplicate key", "POST", "/v1/echo", `{"name":"a","name":"b"}`, 400, "duplicate_field", ""},
+		{"key in a different case", "POST", "/v1/echo", `{"NAME":"a"}`, 400, "unknown_field", ""},
+		{"data after the object", "POST", "/v1/echo", `{"name":"a"} {"count":1}`, 400, "invalid_json", ""},
+		{"invalid UTF-8", "POST", "/v1/echo", "{\"name\":\"a\xffb\"}", 400, "invalid_json", ""},
 		{"wrong type", "POST", "/v1/echo", `{"name":"a","count":"x"}`, 400, "invalid_json", ""},
 		{"malformed JSON", "POST", "/v1/echo", `{"name":`, 400, "invalid_json", ""},
 		{"empty body", "POST", "/v1/echo", "", 400, "invalid_json", ""},
@@ -163,7 +170,7 @@ func TestErrorEnvelope(t *testing.T) {
 			if rec.Code != tc.status {
 				t.Fatalf("status: got %d, want %d (%s)", rec.Code, tc.status, rec.Body.String())
 			}
-			p := decodeError(t, rec)
+			p := decodeBody(t, rec)
 			if p.Code != tc.code {
 				t.Errorf("code: got %q, want %q", p.Code, tc.code)
 			}
@@ -186,7 +193,7 @@ func TestChunkedBodyTooLarge(t *testing.T) {
 	req.ContentLength = -1 // no declared length: the limit must hold while reading
 	req.Header.Set("Content-Type", "application/json")
 	rec := f.serve(req)
-	if rec.Code != http.StatusRequestEntityTooLarge || decodeError(t, rec).Code != "body_too_large" {
+	if rec.Code != http.StatusRequestEntityTooLarge || decodeBody(t, rec).Code != "body_too_large" {
 		t.Fatalf("got %d %s", rec.Code, rec.Body.String())
 	}
 }
@@ -225,21 +232,21 @@ func (failingCheck) Check(_ context.Context) error { return errors.New("dial 10.
 
 func TestProbes(t *testing.T) {
 	f := newFixture(t, nil)
-	if rec := f.do("GET", "/healthz", ""); rec.Code != http.StatusOK {
-		t.Errorf("liveness: got %d", rec.Code)
+	if rec := f.do("GET", "/healthz", ""); rec.Code != http.StatusOK || decodeBody(t, rec).Code != "live" {
+		t.Errorf("liveness: got %d %s", rec.Code, rec.Body)
 	}
-	if rec := f.do("GET", "/readyz", ""); rec.Code != http.StatusServiceUnavailable {
-		t.Errorf("readiness before start: got %d", rec.Code)
+	if rec := f.do("GET", "/readyz", ""); rec.Code != http.StatusServiceUnavailable || decodeBody(t, rec).Code != "not_ready" {
+		t.Errorf("readiness before start: got %d %s", rec.Code, rec.Body)
 	}
 	f.readiness.SetReady(true)
-	if rec := f.do("GET", "/readyz", ""); rec.Code != http.StatusOK {
-		t.Errorf("readiness after start: got %d", rec.Code)
+	if rec := f.do("GET", "/readyz", ""); rec.Code != http.StatusOK || decodeBody(t, rec).Code != "ready" {
+		t.Errorf("readiness after start: got %d %s", rec.Code, rec.Body)
 	}
 
 	degraded := newFixture(t, nil, failingCheck{})
 	degraded.readiness.SetReady(true)
 	rec := degraded.do("GET", "/readyz", "")
-	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "postgres") {
+	if rec.Code != http.StatusServiceUnavailable || decodeBody(t, rec).Details["postgres"] != "failed" {
 		t.Fatalf("degraded readiness: got %d %s", rec.Code, rec.Body.String())
 	}
 	if strings.Contains(rec.Body.String(), "10.0.0.12") {

@@ -2,7 +2,7 @@
 // does a single job; api.NewRouter decides the order.
 //
 // gin.Default() is deliberately not used: its Logger and Recovery print
-// unstructured text and know nothing about request ids or our error envelope.
+// unstructured text and know nothing about request ids or our response body.
 package middleware
 
 import (

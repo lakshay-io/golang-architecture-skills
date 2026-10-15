@@ -82,7 +82,7 @@ Just ask; the skill triggers on its own:
 
 Or invoke it explicitly with `/golang-architecture:go-backend-scaffold`.
 
-**Requirements:** Python 3, `make` and Go. Any recent Go works: the project pins Go 1.26 and downloads that toolchain automatically. New Relic switches on when `NEW_RELIC_LICENSE_KEY` is set, and is required when `APP_ENV=production`.
+**Requirements:** Python 3, `make` and Go. Any recent Go works: the project pins Go 1.27 and downloads that toolchain automatically. New Relic switches on when `NEW_RELIC_LICENSE_KEY` is set, and is required when `APP_ENV=production`.
 
 ## Updates
 

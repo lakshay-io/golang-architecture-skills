@@ -1,7 +1,9 @@
 package handler
 
 import (
-	"encoding/json"
+	"bytes"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -18,18 +20,20 @@ import (
 	"example.com/goservice/internal/platform/apperr"
 )
 
-// Validation is split by responsibility:
-//   - binding tags on request DTOs check the WIRE shape (presence, types,
-//     ranges of query params) and fail before any domain code runs;
-//   - the domain validates BUSINESS invariants, whichever transport (HTTP,
+// Validation runs in two layers, both independent of any database:
+//   - this file checks the WIRE format: strict JSON decoding, then the
+//     binding tags on request DTOs (presence, lengths, ranges);
+//   - the domain checks BUSINESS invariants, whichever transport (HTTP,
 //     gRPC, a queue consumer) the call came from.
+// Storage adapters never validate requests, so swapping the database
+// changes nothing here.
 
 var configureOnce sync.Once
 
 // ConfigureBinding applies process-wide Gin binding settings exactly once:
-// reject unknown JSON fields (catches client typos and contract drift), and
-// report validation errors by their wire name ("next_cursor"), not the Go
-// field name ("NextCursor").
+// validation errors are reported by their wire name ("nextCursor"), not the
+// Go field name ("NextCursor"), and Gin's own JSON binding (if anyone calls
+// c.ShouldBindJSON directly) still rejects unknown fields.
 func ConfigureBinding() {
 	configureOnce.Do(func() {
 		binding.EnableDecoderDisallowUnknownFields = true
@@ -49,9 +53,32 @@ func wireName(f reflect.StructField) string {
 	return f.Name
 }
 
-// BindJSON decodes the JSON body into dst and runs its binding tags.
+// BindJSON decodes the request body into dst with encoding/json/v2, then runs
+// dst's binding tags.
+//
+// encoding/json (v1, which Gin uses) accepts input that attackers rely on to
+// make two parsers disagree. v2's defaults reject all of it:
+//   - duplicate keys ({"admin":false,"admin":true}: v1 silently keeps the last);
+//   - keys in a different case ({"ADMIN":true}: v1 matches it to "admin");
+//   - invalid UTF-8 (v1 silently replaces it with U+FFFD);
+//   - data after the object ({"a":1} {"b":2}: v1 ignores the rest);
+//
+// and RejectUnknownMembers turns unknown fields into errors too.
 func BindJSON(c *gin.Context, dst any) error {
-	if err := c.ShouldBindJSON(dst); err != nil {
+	if c.Request.Body == nil {
+		return apperr.Invalid("invalid_json", "request body must not be empty")
+	}
+	body, err := io.ReadAll(c.Request.Body) // bounded by middleware.BodyLimit
+	if err != nil {
+		return bindError(err)
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return apperr.Invalid("invalid_json", "request body must not be empty")
+	}
+	if err := json.Unmarshal(body, dst, json.RejectUnknownMembers(true)); err != nil {
+		return bindError(err)
+	}
+	if err := binding.Validator.ValidateStruct(dst); err != nil {
 		return bindError(err)
 	}
 	return nil
@@ -82,19 +109,30 @@ func bindError(err error) error {
 		}
 		return apperr.Invalid("validation_failed", "request is invalid").WithDetails(details)
 	}
-	if typeErr, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {
-		return apperr.Invalid("invalid_json", fmt.Sprintf("field %q has the wrong type", typeErr.Field))
+	if errors.Is(err, json.ErrUnknownName) {
+		return apperr.Invalid("unknown_field", "unknown field "+pointerName(err))
 	}
-	if _, ok := errors.AsType[*json.SyntaxError](err); ok || errors.Is(err, io.ErrUnexpectedEOF) {
+	if errors.Is(err, jsontext.ErrDuplicateName) {
+		return apperr.Invalid("duplicate_field", "field "+pointerName(err)+" appears more than once")
+	}
+	if serr, ok := errors.AsType[*json.SemanticError](err); ok {
+		return apperr.Invalid("invalid_json", fmt.Sprintf("field %q has the wrong type", strings.TrimPrefix(string(serr.JSONPointer), "/")))
+	}
+	if _, ok := errors.AsType[*jsontext.SyntacticError](err); ok || errors.Is(err, io.ErrUnexpectedEOF) {
 		return apperr.Invalid("invalid_json", "request body is not valid JSON")
 	}
-	if errors.Is(err, io.EOF) {
-		return apperr.Invalid("invalid_json", "request body must not be empty")
-	}
-	if field, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
-		return apperr.Invalid("unknown_field", "unknown field "+field)
-	}
 	return apperr.Invalid("invalid_request", err.Error())
+}
+
+// pointerName returns the quoted JSON field an error points at, e.g. "admin".
+func pointerName(err error) string {
+	var ptr jsontext.Pointer
+	if serr, ok := errors.AsType[*json.SemanticError](err); ok {
+		ptr = serr.JSONPointer
+	} else if serr, ok := errors.AsType[*jsontext.SyntacticError](err); ok {
+		ptr = serr.JSONPointer
+	}
+	return fmt.Sprintf("%q", strings.TrimPrefix(string(ptr), "/"))
 }
 
 func describe(fe validator.FieldError) string {
