@@ -7,7 +7,7 @@ description: Create the standard production architecture for a Go (Golang) backe
 
 Produces the team's standard Go backend **architecture**: the skeleton every service shares. It is a real, compiling module whose tests pass under `-race`. It contains infrastructure only and no business features.
 
-- **Stack:** Go 1.26+, Gin, New Relic (`go-agent/v3` with `nrgin` and `nrslog`), `log/slog`.
+- **Stack:** Go 1.27+, Gin, New Relic (`go-agent/v3` with `nrgin` and `nrslog`), `log/slog`.
 - **Layout:** ports and adapters with a strict dependency rule.
 
 The architecture is fixed on purpose: every service looking the same is the point. Don't swap the framework, monitoring tool or layout per project unless the user explicitly asks.
@@ -24,7 +24,7 @@ The architecture is fixed on purpose: every service looking the same is the poin
    ```
    Existing files are never overwritten; the script lists them. Merge those by hand. For an existing `README.md`, keep the user's description and add the template's Quick start, Layout and Docs sections under it.
 3. **Verify.** Run `cd <dest> && make verify` (gofmt, vet, module integrity, race tests, build).
-   - The first run may download the Go 1.26 toolchain and modules, which needs network access.
+   - The first run may download the Go 1.27 toolchain and modules, which needs network access.
    - Never hand over a red build. If something fails, fix the cause.
 4. **Report back briefly:**
    - the tree;

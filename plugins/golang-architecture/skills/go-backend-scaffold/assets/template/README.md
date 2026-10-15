@@ -10,7 +10,7 @@ make run                         # http://localhost:8080
 curl -i localhost:8080/readyz    # 200 once started
 ```
 
-Requires Go 1.26+. An older local Go downloads the right toolchain automatically.
+Requires Go 1.27+. An older local Go downloads the right toolchain automatically.
 
 ## Make targets
 

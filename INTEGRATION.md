@@ -12,7 +12,7 @@ The skill is shipped as a plugin (`golang-architecture`) from this repository, w
 | git | Claude Code clones the marketplace with it | `git --version` |
 | Python 3 | The skill's `scaffold.py` generates the service | `python3 --version` |
 | make | Generated services use a Makefile | `make --version` |
-| Go (any recent version) | Building generated services. They pin Go 1.26, and an older Go downloads that toolchain automatically on first build, which needs network. | `go version` |
+| Go (any recent version) | Building generated services. They pin Go 1.27, and an older Go downloads that toolchain automatically on first build, which needs network. | `go version` |
 
 The repository is public, so you don't need GitHub credentials.
 
@@ -138,7 +138,7 @@ claude plugin marketplace remove golang-architecture-skills
 | The skill doesn't trigger | Start a new session or run `/reload-plugins`, then invoke `/golang-architecture:go-backend-scaffold` explicitly. Check `claude plugin list` shows the plugin enabled. |
 | Two copies of the skill appear | Delete the hand-copied `~/.claude/skills/go-backend-scaffold/`. |
 | You don't get a fix that was merged | It's delivered only after a version bump. Run the manual update in section 5 and restart. |
-| `make verify` is slow the first time | Go is downloading the 1.26 toolchain and modules. Later builds use the cache. |
+| `make verify` is slow the first time | Go is downloading the 1.27 toolchain and modules. Later builds use the cache. |
 | `make verify` fails behind a proxy or offline | Go needs `proxy.golang.org` and `sum.golang.org`, or your company's `GOPROXY`. |
 | Production boot fails with a New Relic error | Intended: production requires `NEW_RELIC_LICENSE_KEY`. Set it, or use `APP_ENV=staging`/`local` outside production. |
 

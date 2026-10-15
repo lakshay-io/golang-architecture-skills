@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -38,16 +39,25 @@ func TestLifecycle(t *testing.T) {
 		t.Fatal("server did not start")
 	}
 
+	// A client that leaves no connection behind. A keep-alive or speculatively
+	// dialled connection that never sends a request makes http.Server.Shutdown
+	// wait up to 5 s before treating it as idle, which would make this test flaky.
+	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
 	base := "http://" + a.Addr().String()
 	for path, want := range map[string]int{
 		"/healthz":     http.StatusOK,
 		"/readyz":      http.StatusOK,
 		"/v1/no-route": http.StatusNotFound,
 	} {
-		resp, err := http.Get(base + path)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
 		if resp.StatusCode != want {
 			t.Errorf("GET %s: got %d, want %d", path, resp.StatusCode, want)

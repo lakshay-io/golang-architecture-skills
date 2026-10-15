@@ -157,7 +157,8 @@ Inside a handler:
   - Delete: `204`.
   - Partial update: `PATCH` carrying the `version` the client last read; a stale version gets `409`.
 - **Errors** always use the envelope: `{"error":{"code","message","details","request_id"}}`.
-- **Validation is split by responsibility:**
+- **Validation is split by responsibility, and none of it lives in storage**, so switching databases never touches it:
+  - JSON bodies are decoded with `encoding/json/v2` (`handler.BindJSON`). It rejects duplicate keys, keys in a different case, unknown fields, invalid UTF-8 and data after the object. Go's older `encoding/json` accepts all of them, and attackers use that to make a proxy and the service read the same request differently.
   - Binding tags check the wire shape: presence, types, ranges.
   - The domain checks business invariants, whatever transport the call came from.
 
