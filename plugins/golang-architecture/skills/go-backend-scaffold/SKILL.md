@@ -1,14 +1,15 @@
 ---
 name: go-backend-scaffold
-description: Create the standard production architecture for a Go (Golang) backend service — Gin HTTP transport, ports-and-adapters layout, New Relic monitoring, slog structured logging, typed env config, graceful shutdown, health probes, one response body for every status, Makefile/Dockerfile/lint — as a compiling, tested base with no business features. It also holds the rules for every change in a service built from this base (one with internal/app, internal/api/response and internal/platform/apperr): load it before editing such a service, since services carry no CLAUDE.md. Use this whenever the user wants to start a new Go backend, service, microservice or API; asks for Go project structure, boilerplate, skeleton, base code or "the architecture"; asks how a Go service should be laid out; wants to add a new domain module to a service built from this base; or wants an existing Go service brought in line with the team standard — even if they never say "scaffold".
+description: Create the standard production architecture for a Go (Golang) backend service — Gin HTTP transport (also on AWS Lambda behind API Gateway), ports-and-adapters layout, New Relic monitoring, slog structured logging, typed env config, graceful shutdown, health probes, one response body for every status, OWASP-aligned security defaults, Makefile/Dockerfile/lint/govulncheck — as a compiling, tested base with no business features. It also holds the rules for every change in a service built from this base (one with internal/app, internal/api/response and internal/platform/apperr): load it before editing such a service, since services carry no CLAUDE.md. Use this whenever the user wants to start a new Go backend, service, microservice or API; asks for Go project structure, boilerplate, skeleton, base code or "the architecture"; asks how a Go service should be laid out; wants to add a new domain module to a service built from this base; or wants an existing Go service brought in line with the team standard — even if they never say "scaffold".
 ---
 
 # Go backend scaffold
 
 Produces the team's standard Go backend **architecture**: the skeleton every service shares. It is a real, compiling module whose tests pass under `-race`. It contains infrastructure only and no business features.
 
-- **Stack:** Go 1.27+, Gin, New Relic (`go-agent/v3` with `nrgin` and `nrslog`), `log/slog`.
+- **Stack:** Go 1.27+, Gin, New Relic (`go-agent/v3` with `nrgin` and `nrslog`), `log/slog`; the same binary serves HTTP or AWS Lambda (API Gateway HTTP API).
 - **Layout:** ports and adapters with a strict dependency rule.
+- **Security:** OWASP API Security Top 10 and Top 10 mapped in `docs/SECURITY.md`; `make lint` runs gosec, `make vuln` runs govulncheck.
 
 The architecture is fixed on purpose: every service looking the same is the point. Don't swap the framework, monitoring tool or layout per project unless the user explicitly asks.
 
@@ -29,8 +30,9 @@ The architecture is fixed on purpose: every service looking the same is the poin
 4. **Report back briefly:**
    - the tree;
    - `make run` and `/readyz`;
-   - where the docs are (`docs/ARCHITECTURE.md`, `docs/ADDING_A_MODULE.md`, `docs/OBSERVABILITY.md`);
-   - that New Relic turns on when `NEW_RELIC_LICENSE_KEY` is set and is required when `APP_ENV=production`.
+   - where the docs are (`docs/ARCHITECTURE.md`, `docs/ADDING_A_MODULE.md`, `docs/OBSERVABILITY.md`, `docs/SECURITY.md`);
+   - that New Relic runs only when `APP_ENV=production`, where `NEW_RELIC_LICENSE_KEY` is required;
+   - that the same binary serves API Gateway events when deployed to AWS Lambda.
 
 **Scope:** the scaffold is architecture only. Do not add domain modules, endpoints, database adapters or business logic unless the user asks for them. The empty `V1` route list in `internal/app/app.go` is intentional.
 
@@ -45,7 +47,23 @@ Services built from this base carry no `CLAUDE.md`: these rules live here, so ev
 - Outbound HTTP uses `platform/httpclient`. Datastores use their New Relic integration (see `docs/OBSERVABILITY.md`).
 - New settings go through `internal/config` (typed, validated) and `.env.example`. Nothing else reads environment variables.
 - JSON fields are camelCase; times are RFC 3339 UTC.
-- `make verify` must pass.
+- Modules do not import each other: the module that acts declares a port, and `app` wires an adapter to the other module. Only a module defining a shared plug-in contract may be imported, by its plug-ins, one way.
+- Schema an adapter relies on (unique indexes, tables, time-series collections) is created by `cmd/migrate` and checked at startup. Other binaries live in `cmd/<tool>` and call one `app` function each.
+- `make verify`, `make lint` and `make vuln` must pass.
+
+## Security rules (OWASP)
+
+`docs/SECURITY.md` in every service maps the OWASP API Security Top 10 (2023) and Top 10 to the base. Apply it to every change; its checklist is part of every module's review.
+
+- **Object-level authorization (API1):** every query that reads or changes an object filters on its owner, taken from the authenticated caller, never from the request. Another tenant's object answers exactly like a missing one (404). Every module has a cross-tenant test.
+- **Function-level authorization (API5):** every route group mounts the auth middleware of the one role that may call it. Only the probes are public. Dev-only routes are mounted only for `APP_ENV=local`, in `internal/app`.
+- **Authentication (API2):** pin the token algorithm; check expiry or the session behind the token on every request; one 401 body for every bad token; 503, never 401, when the account store is down.
+- **Property-level authorization (API3):** handler-owned DTOs only, decoded strictly by `handler.BindJSON` (`encoding/json/v2`: unknown fields, duplicate keys, other-case keys and trailing data refused). Never bind or render a domain or storage struct.
+- **Resource consumption (API4):** body and time limits are in the base; every list, page and array in a body has a maximum; gzip is capped after decompression; fan-out is bounded; rate limits sit at the edge.
+- **Injection (A03):** placeholders for SQL; Mongo filters built from typed values, never from a decoded map; values that become a path or key are checked against the characters the store treats specially.
+- **SSRF (API7):** never fetch a URL from a request.
+- **Logging (A09):** never log secrets, tokens or personal data; secret config types implement `slog.LogValuer`.
+- **Components (A06):** a reachable vulnerability `make vuln` reports is fixed before merge.
 
 ## One response body for every status
 
@@ -67,10 +85,10 @@ Every response, success or failure, in every service built on this base has the 
 
 Existing services do not change when the plugin does: the scaffold never overwrites files. When the user asks to bring services up to a new version:
 
-1. Diff each template file against the service's copy, reading the template's `example.com/goservice` as the service's module path. Infrastructure files (`internal/platform/*`, `internal/api/response`, `internal/api/middleware`, `internal/api/handler/{bind,handler,health}.go`, `docs/*`) should end up identical apart from the module path; service-specific code (`internal/app`, `internal/config`, domain, storage, handlers) takes only the change, merged by hand.
+1. Render the template for the service's module path into a scratch directory (`scaffold.py <tmp> --module <module> --name <service>`) and diff every file against the service's copy. Infrastructure files (`internal/platform/*`, `internal/api/response`, `internal/api/middleware/{middleware,newrelic}.go`, `internal/api/handler/{bind,handler,health}.go`, `internal/api/router_test.go`, `docs/{ARCHITECTURE,ADDING_A_MODULE,OBSERVABILITY,SECURITY}.md`) should end up identical apart from the module path; service-specific code (`internal/app`, `internal/config`, `Makefile`, `.env.example`, `README.md`, domain, storage, handlers, the service's own docs) takes only the change, merged by hand.
 2. Update every handler and test the change touches (for example, a new response helper means every `c.JSON` becomes `response.Success`).
 3. Delete a `CLAUDE.md` left by plugin 1.0.x: its rules are in this skill now.
-4. Run `make verify` and lint in each service. Toolchain or dependency upgrades in the template (`go.mod`, `Dockerfile`) are separate steps: ask before taking them into a deployed service.
+4. Run `make verify lint vuln` in each service, plus its integration tests. Toolchain or dependency upgrades in the template (`go.mod`, `Dockerfile`) are separate steps: ask before taking them into a deployed service. A reachable vulnerability from `make vuln` is fixed in the same sync.
 
 ## Adding a module (a feature area) to a scaffolded service
 
@@ -89,22 +107,26 @@ Do not rewrite it wholesale.
 
 1. Read `${CLAUDE_SKILL_DIR}/assets/template/docs/ARCHITECTURE.md`.
 2. Audit the service against it.
-3. Report the gaps ordered by production risk:
+3. Audit it against `${CLAUDE_SKILL_DIR}/assets/template/docs/SECURITY.md` too, and run `govulncheck`.
+4. Report the gaps ordered by production risk:
+   - security: authorization, authentication, reachable vulnerabilities, injection, exposed internals;
    - missing timeouts, graceful shutdown or context propagation;
    - error handling and New Relic coverage;
    - layering violations;
    - style.
-4. Propose an incremental migration in which each step keeps the service deployable.
-5. Copy individual template files (`internal/platform/*`, middleware, `response`) when they fit. Moving to the standard response body changes what clients parse: agree on it with the client teams first.
+5. Propose an incremental migration in which each step keeps the service deployable.
+6. Copy individual template files (`internal/platform/*`, middleware, `response`) when they fit. Moving to the standard response body changes what clients parse: agree on it with the client teams first.
 
 ## The architecture on one screen
 
 ```
 cmd/server/            entry: signals, config, exit code
-internal/app/          composition root: the ONLY place that knows concrete types; lifecycle
+cmd/<tool>/            migrate, dev and ops tools: each calls one app.<Root>
+internal/app/          composition root: the ONLY place that knows concrete types; lifecycle; HTTP or Lambda
 internal/config/       typed env config, validated at boot (all errors at once)
 internal/api/          Gin: router.go (middleware order, /v1 mounting, http.Server),
                        middleware/, response/ (the one response body), handler/ (one file per module)
+internal/<transport>/  other triggers (e.g. trigger/ for Kinesis/SQS events): decode → service → errors
 internal/domain/<m>/   entities, invariants, Service, ports — stdlib + platform/apperr ONLY
 internal/storage/<d>/  adapters implementing domain ports (+ New Relic driver integration)
 internal/platform/     apperr, logger, telemetry (New Relic), httpclient, health, requestid
@@ -115,6 +137,8 @@ Rules that matter most. The full reasoning is in `${CLAUDE_SKILL_DIR}/assets/tem
 - **The domain never imports Gin, New Relic or drivers.** Interfaces are declared by their consumer. Wiring is constructor injection in `app`: no globals, no `init()`.
 - **Middleware order:** RequestID → New Relic → AccessLog → Recovery → SecureHeaders → BodyLimit → Timeout.
   - New Relic must come before AccessLog, because the agent drops logs recorded after a transaction ends.
+  - SecureHeaders sets CSP, HSTS, `nosniff`, `X-Frame-Options`, `Referrer-Policy` and `no-store` (OWASP REST Security Cheat Sheet).
+- **In AWS Lambda** (`AWS_LAMBDA_FUNCTION_NAME` set by the runtime), `app.Run` serves API Gateway HTTP API events through the same router via the Gin adapter; everything `app.New` builds is reused across invocations.
 - **Handlers render with `response.Success` and `return err`.** `handler.Wrap` sends the error to `response.Error`. Together they are the only writers of the response body `{success, status, code, message, data | details, requestId}`.
   - `response.Error` maps `apperr.Kind` to a status.
   - It hides internal errors from the client.
@@ -133,7 +157,7 @@ Rules that matter most. The full reasoning is in `${CLAUDE_SKILL_DIR}/assets/tem
 ## New Relic integration (what is wired and why)
 
 - **Agent setup.** `platform/telemetry.NewRelic` reads every standard `NEW_RELIC_*` variable.
-  - Monitoring is on when a license key is set and mandatory when `APP_ENV=production`.
+  - Monitoring runs only when `APP_ENV=production`, where the license key is required; local, test and staging keep the agent inert even with a key, so they never report into production dashboards.
   - The app name defaults to `<service>-<env>`.
   - Labels `env` and `version` are added.
 - **Error policy:**

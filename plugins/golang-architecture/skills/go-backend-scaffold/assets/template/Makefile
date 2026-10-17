@@ -2,6 +2,12 @@ BINARY  := goservice
 PKG     := ./...
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
+# Pinned tools, run with the module's own toolchain (go.mod `toolchain`): a
+# linter built by an older Go cannot read this module's packages.
+GOLANGCI_LINT := github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+GOVULNCHECK   := golang.org/x/vuln/cmd/govulncheck@v1.9.0
+TOOLCHAIN     := GOTOOLCHAIN=$(shell go env GOVERSION)
+
 .DEFAULT_GOAL := help
 
 .PHONY: help
@@ -26,8 +32,12 @@ cover: ## Run tests and print total coverage
 	@go tool cover -func=coverage.out | tail -1
 
 .PHONY: lint
-lint: ## Run golangci-lint (v2)
-	golangci-lint run
+lint: ## Run golangci-lint (pinned, gosec included)
+	$(TOOLCHAIN) go run $(GOLANGCI_LINT) run
+
+.PHONY: vuln
+vuln: ## Report known vulnerabilities the code can reach (govulncheck; needs network)
+	$(TOOLCHAIN) go run $(GOVULNCHECK) $(PKG)
 
 .PHONY: fmt
 fmt: ## Format all Go code
@@ -38,7 +48,7 @@ tidy: ## Tidy go.mod / go.sum
 	go mod tidy
 
 .PHONY: verify
-verify: ## What CI runs: formatting, vet, module integrity, race tests, build
+verify: ## Formatting, vet, module integrity, race tests, build (CI runs verify lint vuln)
 	@test -z "$$(gofmt -l .)" || (echo "files need gofmt:"; gofmt -l .; exit 1)
 	go vet $(PKG)
 	go mod verify

@@ -207,6 +207,10 @@ V1: []api.Registrar{handler.NewOrderHandler(orders)},
 
 New settings, such as the DSN, go into `internal/config` (typed, validated, and documented in `.env.example`).
 
+If the adapter relies on schema the store must already have (a unique index that keeps writes correct, a table, a time-series collection), add it to `cmd/migrate` and check it at startup; see "Schema and migrations" in ARCHITECTURE.md.
+
+If the module must react to another module, do not import it: declare the port it needs (`ChangeNotifier`, say) and let `app` wire an adapter that calls the other module (ARCHITECTURE.md, dependency rule 6).
+
 ## Checklist
 
 - [ ] `internal/domain/order` imports only the standard library and `platform/apperr`.
@@ -218,4 +222,7 @@ New settings, such as the DSN, go into `internal/config` (typed, validated, and 
 - [ ] Adapters with connections register a readiness check and a closer.
 - [ ] Wiring happens only in `internal/app`.
 - [ ] Domain unit tests, handler tests through the router, and storage integration tests (`-tags integration`) exist.
-- [ ] `make verify` passes.
+- [ ] It imports no other module; cooperation goes through a port wired in `app`.
+- [ ] Schema the adapter relies on is created by `cmd/migrate` and checked at startup.
+- [ ] Security (docs/SECURITY.md): every query filters on the owner taken from the authenticated caller, with a cross-tenant test that gets 404; every route group has its role's auth middleware; DTOs carry only what that caller may set and see; every list and array has a maximum; no secret, token or personal data is logged.
+- [ ] `make verify lint vuln` passes.

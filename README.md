@@ -20,16 +20,16 @@ A generated service looks like this:
 
 ```
 cmd/server/          entrypoint: signals, config, exit code
-internal/app/        composition root: wiring and graceful lifecycle
+internal/app/        composition root: wiring and graceful lifecycle, as a process or in AWS Lambda
 internal/config/     typed env config, validated at boot
-internal/api/        Gin: router, middleware, error envelope, handlers
+internal/api/        Gin: router, middleware (security headers, limits), the one response body, handlers
 internal/domain/     business modules (one package per bounded context)
 internal/storage/    database and cache adapters
 internal/platform/   apperr, logger, telemetry (New Relic), httpclient, health, requestid
-docs/                ARCHITECTURE.md, ADDING_A_MODULE.md, OBSERVABILITY.md
+docs/                ARCHITECTURE.md, ADDING_A_MODULE.md, OBSERVABILITY.md, SECURITY.md (OWASP)
 ```
 
-It passes `make verify` from the first commit: gofmt, vet, race-enabled tests and build. The full rules are in [ARCHITECTURE.md](plugins/golang-architecture/skills/go-backend-scaffold/assets/template/docs/ARCHITECTURE.md).
+It passes `make verify lint vuln` from the first commit: gofmt, vet, race-enabled tests, build, golangci-lint with gosec, and govulncheck. Security follows the OWASP API Security Top 10 and Top 10, mapped in [SECURITY.md](plugins/golang-architecture/skills/go-backend-scaffold/assets/template/docs/SECURITY.md). The full rules are in [ARCHITECTURE.md](plugins/golang-architecture/skills/go-backend-scaffold/assets/template/docs/ARCHITECTURE.md).
 
 ## Install (once per developer)
 

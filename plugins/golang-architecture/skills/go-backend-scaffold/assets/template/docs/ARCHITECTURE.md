@@ -11,6 +11,7 @@ Every Go backend service follows this structure, so an engineer (or Claude) who 
 
 ```
 cmd/server/            process entry: signals, config, exit code. Nothing else.
+cmd/<tool>/            other binaries (migrate, dev and ops tools): same shape, each calls one app.<Root>
 internal/
   app/                 composition root: builds every concrete type, owns the lifecycle
   config/              typed env config, validated once at boot
@@ -19,6 +20,7 @@ internal/
     middleware/        request id, New Relic, access log, recovery, limits, timeout
     response/          the one response body (Success, Error) + domain-error → HTTP-status mapping
     handler/           one file per module: bind → call service → render
+  <transport>/         another way calls arrive (e.g. trigger/ for stream and queue events): decode → service → errors
   domain/<module>/     entities, invariants, use cases (Service), ports (interfaces)
   storage/<driver>/    adapters implementing domain ports (postgres, mongo, redis…)
   platform/            framework-agnostic infrastructure helpers
@@ -28,7 +30,8 @@ internal/
     httpclient/        outbound HTTP client (timeouts, pooling, tracing)
     health/            readiness state and dependency checks
     requestid/         correlation id in context
-docs/                  this file, ADDING_A_MODULE.md, OBSERVABILITY.md
+testdata/contract/     golden files of a contract shared with another service (optional)
+docs/                  this file, ADDING_A_MODULE.md, OBSERVABILITY.md, SECURITY.md
 ```
 
 ## The dependency rule
@@ -50,6 +53,7 @@ platform/*  ◄── used by any layer; imports none of them
    - Handlers have their own request and response structs, so a refactor can never silently change the public API.
    - Storage adapters map rows and documents to entities, so the schema can change without touching the domain.
 5. **`platform` holds no business logic and imports no other layer.** That way it can be copied between services unchanged.
+6. **Modules do not import each other.** When one module must react to another (a rule saved in one is published by another), the module that acts declares a port and `app` wires an adapter between them, so each module can be tested, changed and removed alone. One exception: a module that defines a shared contract for plug-ins (a record type and a `Handler` interface every module of that kind implements) may be imported by those plug-ins, in that one direction only, never back.
 
 ## Request lifecycle
 
@@ -68,6 +72,10 @@ Inside a handler:
 - maps `apperr.Kind` to an HTTP status;
 - hides internal details from the client (5xx always says "internal error");
 - attaches the full cause, which the access log and New Relic report.
+
+**The same binary runs as a process or in AWS Lambda.** When the Lambda runtime sets `AWS_LAMBDA_FUNCTION_NAME`, `config.Lambda` is true and `app.Run` serves API Gateway HTTP API events (payload 2.0) through the same router, middleware and handlers, via the Gin adapter (`app.LambdaHandler`). Everything `app.New` builds (pools, clients) is created once per execution environment and reused by every invocation. Lambda freezes the process between invocations and ends it without a drain, so there is no graceful shutdown there; locally and in a container nothing changes.
+
+**Other transports** live beside `api/`, one package per kind of trigger, for example `internal/trigger` for Kinesis and SQS events. They follow the handler rules: decode the event into the transport's own types, call the service with the event's `ctx`, and decide per error whether the event is retried (an `apperr.KindUnavailable` or unknown error) or dropped and reported (a record that can never be processed), returning partial batch failures so one bad record never blocks the rest.
 
 ## Errors
 
@@ -130,11 +138,21 @@ Inside a handler:
   - Use `strings.Builder` for building strings.
   - Use `sync.Pool` only when a profile proves it helps.
 
+## Schema and migrations
+
+- **A store this service owns gets its schema from a command, not from the first write:** `cmd/migrate` (`make migrate [ENV_FILE=…]`) creates every collection, table and index the adapters rely on, checks the ones that exist, and never drops or changes data, so running it twice changes nothing.
+- **At startup the service checks the schema it relies on** (a unique index that keeps writes correct, a time-series collection that cannot be converted later) and refuses to start, naming `make migrate`, when it is missing. A deploy then fails before taking traffic instead of writing duplicates.
+- **Order:** run the migration, then deploy. Collections another system owns get their indexes from that system.
+
 ## Configuration
 
 - **Environment variables only.** Read once in `internal/config` and passed down typed. Nothing else calls `os.Getenv`.
 - **Validated at boot.** Every problem is reported at once, so a bad deploy fails before taking traffic.
 - **Secrets are never logged.** Types holding them implement `slog.LogValuer` to redact.
+
+## Security
+
+[SECURITY.md](SECURITY.md) maps the OWASP API Security Top 10 and Top 10 to this base: what the base already does (strict JSON decoding, body and time limits, security headers, error hiding, redacted secrets) and what every module must do (object-level authorization in every query, bounded lists, no URLs from requests). Its checklist is part of every module's review, and CI runs `make verify lint vuln`.
 
 ## Logging
 
@@ -171,8 +189,9 @@ Inside a handler:
 | Layer | How | Speed |
 |---|---|---|
 | domain | table-driven unit tests with in-memory fakes of the ports | ms |
-| storage | integration tests against a real database (testcontainers), behind the `integration` build tag | s |
+| storage | integration tests against a real database, behind the `integration` build tag: the database comes from `<STORE>_TEST_URI` (a local server, a CI service container or testcontainers) and the tests skip when it is unset; each test uses its own database and drops it | s |
+| contract | golden files in `testdata/contract`: the producer's tests encode them, the consumer's decode them; identical copies in both repos | ms |
 | api | `httptest` through the real router and middleware (see `internal/api/router_test.go`) | ms |
 | app | boots the process, probes it and shuts it down (see `internal/app/app_test.go`) | s |
 
-`make verify` (gofmt, vet, module integrity, race tests, build) must pass before merge.
+`make verify` (gofmt, vet, module integrity, race tests, build), `make lint` (including gosec) and `make vuln` (govulncheck) must pass before merge.

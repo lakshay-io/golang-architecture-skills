@@ -21,10 +21,10 @@ The template is a working Go module named `example.com/goservice`, with service 
 ```sh
 cd plugins/golang-architecture/skills/go-backend-scaffold/assets/template
 make verify          # gofmt, vet, module integrity, race tests, build
-golangci-lint run    # v2; CI runs the same version
+make lint vuln       # golangci-lint (with gosec) and govulncheck, at the versions the Makefile pins; CI runs the same
 ```
 
-Keep the template **architecture-only**: no business features. Any rule you change belongs in its `docs/ARCHITECTURE.md` too, with the reason. The skill and the team both rely on that document.
+Keep the template **architecture-only**: no business features. Any rule you change belongs in its `docs/ARCHITECTURE.md` too, with the reason, and any security rule in `docs/SECURITY.md`. The skill and the team both rely on those documents.
 
 ## Trying the plugin locally
 

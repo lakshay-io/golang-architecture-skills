@@ -21,10 +21,23 @@ func TestLoadDefaults(t *testing.T) {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
 	if cfg.NewRelic.Enabled {
-		t.Fatal("New Relic must default to off without a license key")
+		t.Fatal("New Relic must be off outside production")
 	}
 	if cfg.NewRelic.AppName != "goservice-local" {
 		t.Fatalf("app name default: got %q", cfg.NewRelic.AppName)
+	}
+	if cfg.Lambda {
+		t.Fatal("Lambda mode without AWS_LAMBDA_FUNCTION_NAME")
+	}
+}
+
+func TestLambdaDetected(t *testing.T) {
+	cfg, err := load(env(map[string]string{"AWS_LAMBDA_FUNCTION_NAME": "goservice-staging"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Lambda {
+		t.Fatal("AWS_LAMBDA_FUNCTION_NAME set, but Lambda is false")
 	}
 }
 
@@ -33,12 +46,12 @@ func TestLoadReportsEveryError(t *testing.T) {
 		"HTTP_READ_TIMEOUT":   "soon",
 		"HTTP_MAX_BODY_BYTES": "big",
 		"LOG_LEVEL":           "loud",
-		"NEW_RELIC_ENABLED":   "maybe",
+		"SHUTDOWN_TIMEOUT":    "later",
 	}))
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	for _, key := range []string{"HTTP_READ_TIMEOUT", "HTTP_MAX_BODY_BYTES", "LOG_LEVEL", "NEW_RELIC_ENABLED"} {
+	for _, key := range []string{"HTTP_READ_TIMEOUT", "HTTP_MAX_BODY_BYTES", "LOG_LEVEL", "SHUTDOWN_TIMEOUT"} {
 		if !strings.Contains(err.Error(), key) {
 			t.Errorf("error does not mention %s: %v", key, err)
 		}
@@ -54,8 +67,7 @@ func TestValidate(t *testing.T) {
 		{"request timeout above write timeout", map[string]string{"HTTP_REQUEST_TIMEOUT": "1m"}, "HTTP_REQUEST_TIMEOUT"},
 		{"unknown env catches typos", map[string]string{"APP_ENV": "prod"}, "APP_ENV"},
 		{"bad trusted proxy", map[string]string{"HTTP_TRUSTED_PROXIES": "10.0.0.0/8, lb.internal"}, "lb.internal"},
-		{"enabled without key", map[string]string{"NEW_RELIC_ENABLED": "true"}, "NEW_RELIC_LICENSE_KEY"},
-		{"production requires monitoring", map[string]string{"APP_ENV": "production"}, "production"},
+		{"production requires a license key", map[string]string{"APP_ENV": "production"}, "NEW_RELIC_LICENSE_KEY is required in production"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -67,13 +79,35 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-func TestNewRelicOnWhenKeyPresent(t *testing.T) {
-	cfg, err := load(env(map[string]string{"NEW_RELIC_LICENSE_KEY": "abc", "APP_ENV": "production"}))
-	if err != nil {
-		t.Fatal(err)
+// New Relic follows APP_ENV alone: a license key outside production, or the
+// agent's own NEW_RELIC_ENABLED variable, never switches it on.
+func TestNewRelicOnlyInProduction(t *testing.T) {
+	tests := []struct {
+		appEnv string
+		want   bool
+	}{
+		{EnvProduction, true},
+		{EnvStaging, false},
+		{EnvTest, false},
+		{EnvLocal, false},
 	}
-	if !cfg.NewRelic.Enabled || cfg.NewRelic.AppName != "goservice-production" {
-		t.Fatalf("unexpected: %+v", cfg.NewRelic)
+	for _, tc := range tests {
+		t.Run(tc.appEnv, func(t *testing.T) {
+			cfg, err := load(env(map[string]string{
+				"APP_ENV":               tc.appEnv,
+				"NEW_RELIC_LICENSE_KEY": "abc",
+				"NEW_RELIC_ENABLED":     "true",
+			}))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.NewRelic.Enabled != tc.want {
+				t.Fatalf("APP_ENV=%s: enabled=%v, want %v", tc.appEnv, cfg.NewRelic.Enabled, tc.want)
+			}
+			if want := "goservice-" + tc.appEnv; cfg.NewRelic.AppName != want {
+				t.Fatalf("app name: got %q, want %q", cfg.NewRelic.AppName, want)
+			}
+		})
 	}
 }
 

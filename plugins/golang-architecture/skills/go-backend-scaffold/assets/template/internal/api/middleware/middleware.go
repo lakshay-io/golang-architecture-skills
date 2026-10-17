@@ -141,10 +141,17 @@ func BodyLimit(limit int64) gin.HandlerFunc {
 	}
 }
 
-// SecureHeaders sets conservative defaults for a JSON API.
+// SecureHeaders sets the response headers the OWASP REST Security Cheat
+// Sheet asks of a JSON API (docs/SECURITY.md). A JSON body is never a page:
+// the CSP forbids loading or framing anything from it, a browser must not
+// guess another content type, nothing is cached, and once a client has seen
+// the service over HTTPS it never falls back to plain HTTP (HSTS is ignored
+// on a plain-HTTP response, so local runs are unaffected).
 func SecureHeaders() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h := c.Writer.Header()
+		h.Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Referrer-Policy", "no-referrer")
