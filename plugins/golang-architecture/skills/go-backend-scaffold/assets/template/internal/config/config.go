@@ -29,6 +29,10 @@ type Config struct {
 	ServiceName string
 	Env         string // local | test | staging | production
 	Version     string // set at build/deploy time
+	// Lambda is true inside AWS Lambda (the runtime sets
+	// AWS_LAMBDA_FUNCTION_NAME): requests then arrive as API Gateway events
+	// instead of on a socket. Locally and in a container it is false.
+	Lambda bool
 
 	HTTP     HTTPConfig
 	Log      LogConfig
@@ -95,6 +99,7 @@ func load(lookup func(string) (string, bool)) (Config, error) {
 		ServiceName: service,
 		Env:         env,
 		Version:     r.str("APP_VERSION", "dev"),
+		Lambda:      r.str("AWS_LAMBDA_FUNCTION_NAME", "") != "",
 		HTTP: HTTPConfig{
 			Addr:              r.str("HTTP_ADDR", ":8080"),
 			ReadHeaderTimeout: r.duration("HTTP_READ_HEADER_TIMEOUT", 5*time.Second),
@@ -114,9 +119,10 @@ func load(lookup func(string) (string, bool)) (Config, error) {
 			Timeout:    r.duration("SHUTDOWN_TIMEOUT", 25*time.Second),
 		},
 		NewRelic: NewRelicConfig{
-			// On by default whenever a license key is present, so local runs
-			// without a key just work and deployed runs never forget it.
-			Enabled:    r.bool("NEW_RELIC_ENABLED", license != ""),
+			// Monitoring runs in production only. Local, test and staging keep
+			// the agent inert even when a license key is set, so they never
+			// report into production dashboards or count against usage.
+			Enabled:    env == EnvProduction,
 			AppName:    r.str("NEW_RELIC_APP_NAME", service+"-"+env),
 			LicenseKey: license,
 		},
@@ -158,10 +164,7 @@ func (c Config) validate() error {
 		errs = append(errs, errors.New("SHUTDOWN_DRAIN_DELAY must be shorter than SHUTDOWN_TIMEOUT"))
 	}
 	if c.NewRelic.Enabled && c.NewRelic.LicenseKey == "" {
-		errs = append(errs, errors.New("NEW_RELIC_LICENSE_KEY is required when New Relic is enabled"))
-	}
-	if c.Env == EnvProduction && !c.NewRelic.Enabled {
-		errs = append(errs, errors.New("production requires New Relic: set NEW_RELIC_LICENSE_KEY"))
+		errs = append(errs, errors.New("NEW_RELIC_LICENSE_KEY is required in production"))
 	}
 	return errors.Join(errs...)
 }
@@ -198,19 +201,6 @@ func (r *reader) list(key string) []string {
 		}
 	}
 	return out
-}
-
-func (r *reader) bool(key string, def bool) bool {
-	v, ok := r.raw(key)
-	if !ok {
-		return def
-	}
-	b, err := strconv.ParseBool(v)
-	if err != nil {
-		r.errs = append(r.errs, fmt.Errorf("%s: %w", key, err))
-		return def
-	}
-	return b
 }
 
 func (r *reader) duration(key string, def time.Duration) time.Duration {

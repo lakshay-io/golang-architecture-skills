@@ -204,8 +204,16 @@ func TestSuccessPassesThrough(t *testing.T) {
 	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"name":"ok"`) {
 		t.Fatalf("got %d %s", rec.Code, rec.Body.String())
 	}
-	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
-		t.Error("security headers missing")
+	for header, want := range map[string]string{
+		"Content-Security-Policy":   "default-src 'none'; frame-ancestors 'none'",
+		"Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+		"X-Content-Type-Options":    "nosniff",
+		"X-Frame-Options":           "DENY",
+		"Cache-Control":             "no-store",
+	} {
+		if got := rec.Header().Get(header); got != want {
+			t.Errorf("%s = %q, want %q", header, got, want)
+		}
 	}
 }
 

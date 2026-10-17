@@ -17,6 +17,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-lambda-go/lambda"
+	ginadapter "github.com/awslabs/aws-lambda-go-api-proxy/gin"
 	"github.com/gin-gonic/gin"
 
 	"example.com/goservice/internal/api"
@@ -31,6 +34,7 @@ type App struct {
 	cfg       config.Config
 	log       *slog.Logger
 	readiness *health.Readiness
+	engine    *gin.Engine
 	server    *http.Server
 	closers   []closer
 
@@ -92,6 +96,7 @@ func New(cfg config.Config) (*App, error) {
 	for _, rt := range engine.Routes() {
 		a.log.Debug("route registered", slog.String("method", rt.Method), slog.String("path", rt.Path))
 	}
+	a.engine = engine
 	a.server = api.NewServer(cfg.HTTP, engine, a.log)
 	return a, nil
 }
@@ -105,8 +110,11 @@ func (a *App) Started() <-chan struct{} { return a.started }
 func (a *App) Addr() net.Addr           { return a.addr }
 
 // Run serves until ctx is cancelled (SIGTERM/SIGINT) or the server fails,
-// then shuts down gracefully.
+// then shuts down gracefully. In AWS Lambda it serves invocations instead.
 func (a *App) Run(ctx context.Context) error {
+	if a.cfg.Lambda {
+		return a.runLambda(ctx)
+	}
 	// Bind before reporting ready: a taken port fails fast, at boot.
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", a.server.Addr)
@@ -129,6 +137,27 @@ func (a *App) Run(ctx context.Context) error {
 		a.log.Info("shutdown signal received")
 		return a.shutdown(ctx, true)
 	}
+}
+
+// runLambda serves API Gateway HTTP API events (payload 2.0) through the same
+// router, middleware and handlers as the HTTP server. Everything New built
+// (pools, clients) runs once per execution environment and is reused by every
+// invocation it serves. Lambda freezes the process between invocations and
+// ends it without a drain, so the adapters close with the process.
+func (a *App) runLambda(ctx context.Context) error {
+	close(a.started)
+	a.readiness.SetReady(true)
+	a.log.Info("lambda handler started")
+	// Returns only by exiting the process, when the runtime API fails.
+	lambda.StartWithOptions(a.LambdaHandler(), lambda.WithContext(ctx))
+	return nil
+}
+
+// LambdaHandler turns one API Gateway HTTP API event into a request on the
+// router and its response back into an event. API Gateway base64-encodes
+// binary bodies such as gzip; the adapter decodes them before the router.
+func (a *App) LambdaHandler() func(context.Context, events.APIGatewayV2HTTPRequest) (events.APIGatewayV2HTTPResponse, error) {
+	return ginadapter.NewV2(a.engine).ProxyWithContext
 }
 
 // shutdown runs the graceful sequence, bounded by Shutdown.Timeout:

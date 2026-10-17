@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-lambda-go/events"
+
 	"example.com/goservice/internal/app"
 	"example.com/goservice/internal/config"
 )
@@ -72,5 +74,39 @@ func TestLifecycle(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("graceful shutdown did not finish")
+	}
+}
+
+// In AWS Lambda, API Gateway HTTP API events (payload 2.0) reach the same
+// router, middleware and handlers.
+func TestLambdaHandler(t *testing.T) {
+	t.Setenv("APP_ENV", config.EnvTest)
+	t.Setenv("LOG_LEVEL", "error")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := app.New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle := a.LambdaHandler()
+
+	for path, want := range map[string]int{
+		"/healthz":     http.StatusOK,
+		"/v1/no-route": http.StatusNotFound,
+	} {
+		resp, err := handle(context.Background(), events.APIGatewayV2HTTPRequest{
+			Version:        "2.0",
+			RawPath:        path,
+			Headers:        map[string]string{"accept": "application/json"},
+			RequestContext: events.APIGatewayV2HTTPRequestContext{HTTP: events.APIGatewayV2HTTPRequestContextHTTPDescription{Method: http.MethodGet, Path: path, SourceIP: "203.0.113.7"}},
+		})
+		if err != nil {
+			t.Fatalf("GET %s: %v", path, err)
+		}
+		if resp.StatusCode != want {
+			t.Errorf("GET %s: got %d, want %d (body %s)", path, resp.StatusCode, want, resp.Body)
+		}
 	}
 }

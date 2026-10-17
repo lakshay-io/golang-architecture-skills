@@ -31,7 +31,7 @@ jobs:
           claude plugin validate "$PLUGIN_DIR" --strict
 
   template:
-    name: Template (verify + lint)
+    name: Template (verify + lint + vuln)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -44,8 +44,11 @@ jobs:
         run: make verify
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
-          version: v2.14.0
+          version: v2.15.0 # same as GOLANGCI_LINT in the template Makefile
           working-directory: ${{ env.TEMPLATE_DIR }}
+      - name: make vuln
+        working-directory: ${{ env.TEMPLATE_DIR }}
+        run: make vuln
 
   scaffold:
     name: Scaffold a service end to end
@@ -58,9 +61,9 @@ jobs:
           cache-dependency-path: ${{ env.TEMPLATE_DIR }}/go.sum
       - name: Generate a service
         run: python3 "$PLUGIN_DIR/skills/go-backend-scaffold/scripts/scaffold.py" "$RUNNER_TEMP/ci-service" --module github.com/example/ci-service
-      - name: make verify in the generated service
+      - name: make verify vuln in the generated service
         working-directory: ${{ runner.temp }}/ci-service
-        run: make verify
+        run: make verify vuln
 
   version-bump:
     name: Plugin version bumped

@@ -21,13 +21,12 @@ Health probes and unmatched paths (404 scans) are **not** monitored. Probes hit 
 
 | Variable | Default | Notes |
 |---|---|---|
-| `NEW_RELIC_LICENSE_KEY` | — | Setting it turns monitoring on. **Required in production** (boot fails otherwise). |
+| `NEW_RELIC_LICENSE_KEY` | — | **Required in production** (boot fails otherwise). Ignored in every other environment. |
 | `NEW_RELIC_APP_NAME` | `<SERVICE_NAME>-<APP_ENV>` | One app per environment, so staging never pollutes production dashboards. |
-| `NEW_RELIC_ENABLED` | on when a key is set | Force on or off. |
 | `NEW_RELIC_APPLICATION_LOGGING_FORWARDING_ENABLED` | `true` | Set `false` if stdout is already shipped to New Relic (Fluent Bit, the Kubernetes integration); otherwise every line arrives twice. |
 | any other `NEW_RELIC_*` | agent default | Read by the agent directly: labels, high security, proxy, profiling. |
 
-Locally, with no key, the agent is inert. Code paths are identical, so nothing needs an "if monitoring" branch.
+**Monitoring runs only when `APP_ENV=production`.** Local, test and staging keep the agent inert even with a key, so they never report into production dashboards. Code paths are identical, so nothing needs an "if monitoring" branch.
 
 ## Instrumenting new code
 
