@@ -9,7 +9,7 @@
     {
       "name": "golang-architecture",
       "source": "./plugins/golang-architecture",
-      "description": "Scaffold and extend Go backend services: Gin, ports-and-adapters layout, New Relic, slog, graceful shutdown, tested from day one."
+      "description": "Scaffold and extend Go backend services: Gin, ports-and-adapters layout, New Relic, slog, graceful shutdown, an OpenAPI 3.1 spec generated from the handlers, tested from day one."
     }
   ]
 }

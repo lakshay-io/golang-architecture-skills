@@ -1,0 +1,1065 @@
+{
+  "info": {
+    "description": "The goservice API. Every response, success or failure, has the same body: success, status, code, message, data or details, and requestId.",
+    "title": "goservice",
+    "version": "v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/healthz": {
+      "get": {
+        "description": "The liveness probe. It never checks dependencies, so a database outage does not restart every replica at once.",
+        "operationId": "live",
+        "parameters": [
+          {
+            "description": "Optional: the caller's correlation id, up to 128 characters. The response echoes it, or a new one.",
+            "example": "b707e5a8f62f28f2f1d1b87312db24a6",
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "live": {
+                    "summary": "live",
+                    "value": {
+                      "success": true,
+                      "status": 200,
+                      "code": "live",
+                      "message": "Service is running",
+                      "data": {},
+                      "requestId": "b707e5a8f62f28f2f1d1b87312db24a6"
+                    }
+                  }
+                },
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "description": "The outcome, stable: switch on it.",
+                      "enum": [
+                        "live"
+                      ],
+                      "type": "string"
+                    },
+                    "data": {
+                      "description": "The result: on every success, never on a failure.",
+                      "maxProperties": 0,
+                      "type": "object"
+                    },
+                    "message": {
+                      "description": "A sentence for logs or people. Never parse it.",
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "description": "Equal to the X-Request-ID header. Quote it when reporting a problem.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 200,
+                      "description": "The HTTP status, repeated.",
+                      "type": "integer"
+                    },
+                    "success": {
+                      "const": true,
+                      "description": "True for a 2xx, false otherwise.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "status",
+                    "code",
+                    "message",
+                    "requestId",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "- `live`",
+            "headers": {
+              "Cache-Control": {
+                "description": "Set on every response.",
+                "example": "no-store",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Content-Security-Policy": {
+                "description": "Set on every response.",
+                "example": "default-src 'none'; frame-ancestors 'none'",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "default-src 'none'; frame-ancestors 'none'"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Set on every response.",
+                "example": "no-referrer",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-referrer"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Set on every response.",
+                "example": "max-age=31536000; includeSubDomains",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "max-age=31536000; includeSubDomains"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Set on every response.",
+                "example": "nosniff",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "nosniff"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Frame-Options": {
+                "description": "Set on every response.",
+                "example": "DENY",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "DENY"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "description": "The request's id: the caller's X-Request-ID, or a new one. Quote it when reporting a problem.",
+                "example": "b707e5a8f62f28f2f1d1b87312db24a6",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "internal": {
+                    "description": "An unexpected failure. The message never says more: quote the requestId.",
+                    "summary": "internal",
+                    "value": {
+                      "success": false,
+                      "status": 500,
+                      "code": "internal",
+                      "message": "internal error",
+                      "requestId": "b707e5a8f62f28f2f1d1b87312db24a6"
+                    }
+                  }
+                },
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "description": "The outcome, stable: switch on it.",
+                      "enum": [
+                        "internal"
+                      ],
+                      "type": "string"
+                    },
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Field path to problem: only on a failure about specific fields.",
+                      "type": "object"
+                    },
+                    "message": {
+                      "description": "A sentence for logs or people. Never parse it.",
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "description": "Equal to the X-Request-ID header. Quote it when reporting a problem.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 500,
+                      "description": "The HTTP status, repeated.",
+                      "type": "integer"
+                    },
+                    "success": {
+                      "const": false,
+                      "description": "True for a 2xx, false otherwise.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "status",
+                    "code",
+                    "message",
+                    "requestId"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "- `internal`: An unexpected failure. The message never says more: quote the requestId.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Set on every response.",
+                "example": "no-store",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Content-Security-Policy": {
+                "description": "Set on every response.",
+                "example": "default-src 'none'; frame-ancestors 'none'",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "default-src 'none'; frame-ancestors 'none'"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Set on every response.",
+                "example": "no-referrer",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-referrer"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Set on every response.",
+                "example": "max-age=31536000; includeSubDomains",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "max-age=31536000; includeSubDomains"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Set on every response.",
+                "example": "nosniff",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "nosniff"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Frame-Options": {
+                "description": "Set on every response.",
+                "example": "DENY",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "DENY"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "description": "The request's id: the caller's X-Request-ID, or a new one. Quote it when reporting a problem.",
+                "example": "b707e5a8f62f28f2f1d1b87312db24a6",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "timeout": {
+                    "description": "The request took longer than the service allows.",
+                    "summary": "timeout",
+                    "value": {
+                      "success": false,
+                      "status": 504,
+                      "code": "timeout",
+                      "message": "request timed out",
+                      "requestId": "b707e5a8f62f28f2f1d1b87312db24a6"
+                    }
+                  }
+                },
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "description": "The outcome, stable: switch on it.",
+                      "enum": [
+                        "timeout"
+                      ],
+                      "type": "string"
+                    },
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Field path to problem: only on a failure about specific fields.",
+                      "type": "object"
+                    },
+                    "message": {
+                      "description": "A sentence for logs or people. Never parse it.",
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "description": "Equal to the X-Request-ID header. Quote it when reporting a problem.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 504,
+                      "description": "The HTTP status, repeated.",
+                      "type": "integer"
+                    },
+                    "success": {
+                      "const": false,
+                      "description": "True for a 2xx, false otherwise.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "status",
+                    "code",
+                    "message",
+                    "requestId"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "- `timeout`: The request took longer than the service allows.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Set on every response.",
+                "example": "no-store",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Content-Security-Policy": {
+                "description": "Set on every response.",
+                "example": "default-src 'none'; frame-ancestors 'none'",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "default-src 'none'; frame-ancestors 'none'"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Set on every response.",
+                "example": "no-referrer",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-referrer"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Set on every response.",
+                "example": "max-age=31536000; includeSubDomains",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "max-age=31536000; includeSubDomains"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Set on every response.",
+                "example": "nosniff",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "nosniff"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Frame-Options": {
+                "description": "Set on every response.",
+                "example": "DENY",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "DENY"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "description": "The request's id: the caller's X-Request-ID, or a new one. Quote it when reporting a problem.",
+                "example": "b707e5a8f62f28f2f1d1b87312db24a6",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "summary": "Is the process running?",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/readyz": {
+      "get": {
+        "description": "The readiness probe: checks every dependency the service needs to answer.",
+        "operationId": "ready",
+        "parameters": [
+          {
+            "description": "Optional: the caller's correlation id, up to 128 characters. The response echoes it, or a new one.",
+            "example": "b707e5a8f62f28f2f1d1b87312db24a6",
+            "in": "header",
+            "name": "X-Request-ID",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "ready": {
+                    "summary": "ready",
+                    "value": {
+                      "success": true,
+                      "status": 200,
+                      "code": "ready",
+                      "message": "Service is ready",
+                      "data": {},
+                      "requestId": "b707e5a8f62f28f2f1d1b87312db24a6"
+                    }
+                  }
+                },
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "description": "The outcome, stable: switch on it.",
+                      "enum": [
+                        "ready"
+                      ],
+                      "type": "string"
+                    },
+                    "data": {
+                      "description": "The result: on every success, never on a failure.",
+                      "maxProperties": 0,
+                      "type": "object"
+                    },
+                    "message": {
+                      "description": "A sentence for logs or people. Never parse it.",
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "description": "Equal to the X-Request-ID header. Quote it when reporting a problem.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 200,
+                      "description": "The HTTP status, repeated.",
+                      "type": "integer"
+                    },
+                    "success": {
+                      "const": true,
+                      "description": "True for a 2xx, false otherwise.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "status",
+                    "code",
+                    "message",
+                    "requestId",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "- `ready`",
+            "headers": {
+              "Cache-Control": {
+                "description": "Set on every response.",
+                "example": "no-store",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Content-Security-Policy": {
+                "description": "Set on every response.",
+                "example": "default-src 'none'; frame-ancestors 'none'",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "default-src 'none'; frame-ancestors 'none'"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Set on every response.",
+                "example": "no-referrer",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-referrer"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Set on every response.",
+                "example": "max-age=31536000; includeSubDomains",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "max-age=31536000; includeSubDomains"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Set on every response.",
+                "example": "nosniff",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "nosniff"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Frame-Options": {
+                "description": "Set on every response.",
+                "example": "DENY",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "DENY"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "description": "The request's id: the caller's X-Request-ID, or a new one. Quote it when reporting a problem.",
+                "example": "b707e5a8f62f28f2f1d1b87312db24a6",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "internal": {
+                    "description": "An unexpected failure. The message never says more: quote the requestId.",
+                    "summary": "internal",
+                    "value": {
+                      "success": false,
+                      "status": 500,
+                      "code": "internal",
+                      "message": "internal error",
+                      "requestId": "b707e5a8f62f28f2f1d1b87312db24a6"
+                    }
+                  }
+                },
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "description": "The outcome, stable: switch on it.",
+                      "enum": [
+                        "internal"
+                      ],
+                      "type": "string"
+                    },
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Field path to problem: only on a failure about specific fields.",
+                      "type": "object"
+                    },
+                    "message": {
+                      "description": "A sentence for logs or people. Never parse it.",
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "description": "Equal to the X-Request-ID header. Quote it when reporting a problem.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 500,
+                      "description": "The HTTP status, repeated.",
+                      "type": "integer"
+                    },
+                    "success": {
+                      "const": false,
+                      "description": "True for a 2xx, false otherwise.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "status",
+                    "code",
+                    "message",
+                    "requestId"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "- `internal`: An unexpected failure. The message never says more: quote the requestId.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Set on every response.",
+                "example": "no-store",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Content-Security-Policy": {
+                "description": "Set on every response.",
+                "example": "default-src 'none'; frame-ancestors 'none'",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "default-src 'none'; frame-ancestors 'none'"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Set on every response.",
+                "example": "no-referrer",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-referrer"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Set on every response.",
+                "example": "max-age=31536000; includeSubDomains",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "max-age=31536000; includeSubDomains"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Set on every response.",
+                "example": "nosniff",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "nosniff"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Frame-Options": {
+                "description": "Set on every response.",
+                "example": "DENY",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "DENY"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "description": "The request's id: the caller's X-Request-ID, or a new one. Quote it when reporting a problem.",
+                "example": "b707e5a8f62f28f2f1d1b87312db24a6",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "degraded": {
+                    "description": "A dependency check failed: details names each failed check.",
+                    "summary": "degraded",
+                    "value": {
+                      "success": false,
+                      "status": 503,
+                      "code": "degraded",
+                      "message": "A dependency is unavailable",
+                      "details": {
+                        "database": "failed"
+                      },
+                      "requestId": "b707e5a8f62f28f2f1d1b87312db24a6"
+                    }
+                  },
+                  "not_ready": {
+                    "description": "The service is starting or shutting down.",
+                    "summary": "not_ready",
+                    "value": {
+                      "success": false,
+                      "status": 503,
+                      "code": "not_ready",
+                      "message": "Service is not ready",
+                      "requestId": "b707e5a8f62f28f2f1d1b87312db24a6"
+                    }
+                  }
+                },
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "description": "The outcome, stable: switch on it.",
+                      "enum": [
+                        "not_ready",
+                        "degraded"
+                      ],
+                      "type": "string"
+                    },
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Field path to problem: only on a failure about specific fields.",
+                      "type": "object"
+                    },
+                    "message": {
+                      "description": "A sentence for logs or people. Never parse it.",
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "description": "Equal to the X-Request-ID header. Quote it when reporting a problem.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 503,
+                      "description": "The HTTP status, repeated.",
+                      "type": "integer"
+                    },
+                    "success": {
+                      "const": false,
+                      "description": "True for a 2xx, false otherwise.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "status",
+                    "code",
+                    "message",
+                    "requestId"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "- `not_ready`: The service is starting or shutting down.\n- `degraded`: A dependency check failed: details names each failed check.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Set on every response.",
+                "example": "no-store",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Content-Security-Policy": {
+                "description": "Set on every response.",
+                "example": "default-src 'none'; frame-ancestors 'none'",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "default-src 'none'; frame-ancestors 'none'"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Set on every response.",
+                "example": "no-referrer",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-referrer"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Set on every response.",
+                "example": "max-age=31536000; includeSubDomains",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "max-age=31536000; includeSubDomains"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Set on every response.",
+                "example": "nosniff",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "nosniff"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Frame-Options": {
+                "description": "Set on every response.",
+                "example": "DENY",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "DENY"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "description": "The request's id: the caller's X-Request-ID, or a new one. Quote it when reporting a problem.",
+                "example": "b707e5a8f62f28f2f1d1b87312db24a6",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "timeout": {
+                    "description": "The request took longer than the service allows.",
+                    "summary": "timeout",
+                    "value": {
+                      "success": false,
+                      "status": 504,
+                      "code": "timeout",
+                      "message": "request timed out",
+                      "requestId": "b707e5a8f62f28f2f1d1b87312db24a6"
+                    }
+                  }
+                },
+                "schema": {
+                  "properties": {
+                    "code": {
+                      "description": "The outcome, stable: switch on it.",
+                      "enum": [
+                        "timeout"
+                      ],
+                      "type": "string"
+                    },
+                    "details": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "description": "Field path to problem: only on a failure about specific fields.",
+                      "type": "object"
+                    },
+                    "message": {
+                      "description": "A sentence for logs or people. Never parse it.",
+                      "type": "string"
+                    },
+                    "requestId": {
+                      "description": "Equal to the X-Request-ID header. Quote it when reporting a problem.",
+                      "type": "string"
+                    },
+                    "status": {
+                      "const": 504,
+                      "description": "The HTTP status, repeated.",
+                      "type": "integer"
+                    },
+                    "success": {
+                      "const": false,
+                      "description": "True for a 2xx, false otherwise.",
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "status",
+                    "code",
+                    "message",
+                    "requestId"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "- `timeout`: The request took longer than the service allows.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Set on every response.",
+                "example": "no-store",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-store"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Content-Security-Policy": {
+                "description": "Set on every response.",
+                "example": "default-src 'none'; frame-ancestors 'none'",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "default-src 'none'; frame-ancestors 'none'"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "description": "Set on every response.",
+                "example": "no-referrer",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "no-referrer"
+                  ],
+                  "type": "string"
+                }
+              },
+              "Strict-Transport-Security": {
+                "description": "Set on every response.",
+                "example": "max-age=31536000; includeSubDomains",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "max-age=31536000; includeSubDomains"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "description": "Set on every response.",
+                "example": "nosniff",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "nosniff"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Frame-Options": {
+                "description": "Set on every response.",
+                "example": "DENY",
+                "required": true,
+                "schema": {
+                  "enum": [
+                    "DENY"
+                  ],
+                  "type": "string"
+                }
+              },
+              "X-Request-ID": {
+                "description": "The request's id: the caller's X-Request-ID, or a new one. Quote it when reporting a problem.",
+                "example": "b707e5a8f62f28f2f1d1b87312db24a6",
+                "required": true,
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "summary": "Can it take traffic?",
+        "tags": [
+          "Health"
+        ]
+      }
+    }
+  },
+  "servers": [
+    {
+      "description": "Local: make run",
+      "url": "http://localhost:8080"
+    }
+  ],
+  "tags": [
+    {
+      "description": "Probes for the load balancer and the orchestrator. Public.",
+      "name": "Health"
+    }
+  ]
+}

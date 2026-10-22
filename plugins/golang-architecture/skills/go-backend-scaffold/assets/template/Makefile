@@ -47,8 +47,12 @@ fmt: ## Format all Go code
 tidy: ## Tidy go.mod / go.sum
 	go mod tidy
 
+.PHONY: openapi
+openapi: ## Regenerate docs/openapi.json from the handlers' Docs (commit it)
+	go run ./cmd/openapi -o docs/openapi.json
+
 .PHONY: verify
-verify: ## Formatting, vet, module integrity, race tests, build (CI runs verify lint vuln)
+verify: ## Formatting, vet, module integrity, race tests (incl. a current docs/openapi.json), build (CI runs verify lint vuln)
 	@test -z "$$(gofmt -l .)" || (echo "files need gofmt:"; gofmt -l .; exit 1)
 	go vet $(PKG)
 	go mod verify

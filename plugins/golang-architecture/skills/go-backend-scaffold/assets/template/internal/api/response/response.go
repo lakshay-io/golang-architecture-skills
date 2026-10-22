@@ -27,24 +27,25 @@ import (
 // before we answered. Nobody reads the body; it only keeps metrics honest.
 const StatusClientClosedRequest = 499
 
-// Body is every response body the API writes.
+// Body is every response body the API writes. The doc tags describe its
+// fields in the API docs (internal/api/apidoc).
 type Body struct {
 	// Success is true for 2xx, false otherwise.
-	Success bool `json:"success"`
+	Success bool `json:"success" doc:"True for a 2xx, false otherwise."`
 	// Status repeats the HTTP status, for clients that only keep the body.
-	Status int `json:"status"`
+	Status int `json:"status" doc:"The HTTP status, repeated."`
 	// Code is the stable, machine-readable outcome clients switch on, e.g.
 	// "batch_accepted" or "telemetry_invalid".
-	Code string `json:"code"`
+	Code string `json:"code" doc:"The outcome, stable: switch on it."`
 	// Message is a human-readable sentence; never parse it.
-	Message string `json:"message"`
+	Message string `json:"message" doc:"A sentence for logs or people. Never parse it."`
 	// Data is the result: on every success, never on a failure.
-	Data any `json:"data,omitempty"`
+	Data any `json:"data,omitempty" doc:"The result: on every success, never on a failure."`
 	// Details names each invalid field and what is wrong with it: only on a
 	// failure that is about specific fields.
-	Details map[string]string `json:"details,omitempty"`
+	Details map[string]string `json:"details,omitempty" doc:"Field path to problem: only on a failure about specific fields."`
 	// RequestID matches the X-Request-ID header, the logs and New Relic.
-	RequestID string `json:"requestId"`
+	RequestID string `json:"requestId" doc:"Equal to the X-Request-ID header. Quote it when reporting a problem."`
 }
 
 // HTTPError is a transport-level failure with an explicit status: things the

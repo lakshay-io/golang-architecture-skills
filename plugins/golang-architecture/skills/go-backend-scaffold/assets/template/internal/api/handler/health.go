@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"example.com/goservice/internal/api/apidoc"
 	"example.com/goservice/internal/api/response"
 	"example.com/goservice/internal/platform/apperr"
 	"example.com/goservice/internal/platform/health"
@@ -36,6 +37,34 @@ func NewHealth(r *health.Readiness, log *slog.Logger) *Health {
 func (h *Health) Register(r gin.IRouter) {
 	r.GET(LivePath, h.live)
 	r.GET(ReadyPath, h.ready)
+}
+
+// Docs documents the probes for docs/openapi.json.
+func (h *Health) Docs() apidoc.Group {
+	return apidoc.Group{
+		Tag:         "Health",
+		Description: "Probes for the load balancer and the orchestrator. Public.",
+		Ops: []apidoc.Op{
+			{
+				Method: http.MethodGet, Path: LivePath, ID: "live",
+				Summary:     "Is the process running?",
+				Description: "The liveness probe. It never checks dependencies, so a database outage does not restart every replica at once.",
+				Success:     []apidoc.Success{{Status: http.StatusOK, Code: "live", Message: "Service is running"}},
+			},
+			{
+				Method: http.MethodGet, Path: ReadyPath, ID: "ready",
+				Summary:     "Can it take traffic?",
+				Description: "The readiness probe: checks every dependency the service needs to answer.",
+				Success:     []apidoc.Success{{Status: http.StatusOK, Code: "ready", Message: "Service is ready"}},
+				Errors: []apidoc.Error{
+					{Status: http.StatusServiceUnavailable, Code: errNotReady.Code, Message: errNotReady.Message,
+						When: "The service is starting or shutting down."},
+					{Status: http.StatusServiceUnavailable, Code: errDegraded.Code, Message: errDegraded.Message,
+						When: "A dependency check failed: details names each failed check.", Details: map[string]string{"database": "failed"}},
+				},
+			},
+		},
+	}
 }
 
 // live never checks dependencies: a database outage must not make the

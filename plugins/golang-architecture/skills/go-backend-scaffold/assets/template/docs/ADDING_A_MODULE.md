@@ -13,9 +13,10 @@ internal/domain/order/
 internal/storage/postgres/
   order_repo.go     adapter implementing order.Repository
 internal/api/handler/
-  order.go          wire DTOs, Register, handlers
+  order.go          wire DTOs, Register, Docs, handlers
   order_test.go     httptest through the real router
-internal/app/app.go wiring: about three lines
+internal/app/       wiring: about three lines in app.go and routes.go
+docs/openapi.json   regenerated with make openapi
 ```
 
 ## 1. Domain: `internal/domain/order`
@@ -170,6 +171,29 @@ func (h *OrderHandler) Register(r gin.IRouter) {
 	g.GET("/:id", Wrap(h.get))
 }
 
+// Docs documents, op for op, the routes Register mounts: make openapi turns
+// it into docs/openapi.json, and the build fails if the two disagree. The
+// values are the examples the docs show, so make them realistic.
+func (h *OrderHandler) Docs() apidoc.Group {
+	return apidoc.Group{
+		Tag:         "Orders",
+		Description: "A customer's orders.",
+		Auth:        "userToken", // a scheme in internal/app/openapi.go
+		Ops: []apidoc.Op{{
+			Method: http.MethodGet, Path: "/orders/:id", ID: "getOrder",
+			Summary:    "Get an order",
+			PathParams: []apidoc.Param{{Name: "id", Description: "The order's id.", Example: "0192f1c5-0000-7000-8000-000000000001"}},
+			Success: []apidoc.Success{{
+				Status: http.StatusOK, Code: "order_found", Message: "Order found",
+				Data: orderResponse{ID: "0192f1c5-0000-7000-8000-000000000001", Version: 3,
+					CreatedAt: time.Date(2026, 10, 1, 9, 30, 0, 0, time.UTC), UpdatedAt: time.Date(2026, 10, 2, 11, 0, 0, 0, time.UTC)},
+			}},
+			Errors: []apidoc.Error{{Status: http.StatusNotFound, Code: "order_not_found", Message: "Order not found",
+				When: "No order has this id, or it belongs to another customer."}},
+		}},
+	}
+}
+
 // The public contract: separate from order.Order on purpose.
 type orderResponse struct {
 	ID        string    `json:"id"`
@@ -191,7 +215,9 @@ func (h *OrderHandler) get(c *gin.Context) error {
 
 Request bodies use `BindJSON(c, &req)` with binding tags for wire shape only, e.g. `binding:"required,gt=0"`. Business rules stay in the domain.
 
-## 4. Wiring: `internal/app/app.go`
+In `Docs`, a body is `Body: createOrderRequest{…}`, filled in with an example; a field the domain requires gets `api:"required"` on the DTO. A DTO with a type that decides its own JSON (a custom `UnmarshalJSON`) gives `Example` as JSON instead, and that type implements `OpenAPISchema()`. List every failure the route returns with its message; the standard ones (bad JSON, the auth scheme's, 500, 504) are added for you. Then run `make openapi` and commit `docs/openapi.json`.
+
+## 4. Wiring: `internal/app`
 
 ```go
 pool, err := postgres.Open(ctx, cfg.Postgres.DSN)
@@ -202,8 +228,19 @@ orders := order.NewService(postgres.NewOrderRepo(pool),
 	func() string { return uuid.Must(uuid.NewV7()).String() }, // github.com/google/uuid
 	time.Now)
 
-V1: []api.Registrar{handler.NewOrderHandler(orders)},
+// internal/app/routes.go: the services the handlers need, and the handler.
+type services struct {
+	…
+	orders *order.Service
+}
+
+V1: []api.Registrar{handler.NewOrderHandler(s.orders)},
+
+// internal/app/app.go, in New: hand the service to the handlers.
+routes(services{readiness: a.readiness, log: a.log, orders: orders}),
 ```
+
+A handler's constructor only stores what it is given: `OpenAPI` builds every handler with zero services to read their `Docs`.
 
 New settings, such as the DSN, go into `internal/config` (typed, validated, and documented in `.env.example`).
 
@@ -225,4 +262,5 @@ If the module must react to another module, do not import it: declare the port i
 - [ ] It imports no other module; cooperation goes through a port wired in `app`.
 - [ ] Schema the adapter relies on is created by `cmd/migrate` and checked at startup.
 - [ ] Security (docs/SECURITY.md): every query filters on the owner taken from the authenticated caller, with a cross-tenant test that gets 404; every route group has its role's auth middleware; DTOs carry only what that caller may set and see; every list and array has a maximum; no secret, token or personal data is logged.
+- [ ] Every route `Register` mounts has its op in `Docs`, with its auth, headers, body example, every success and every failure; `make openapi` was run and `docs/openapi.json` committed.
 - [ ] `make verify lint vuln` passes.

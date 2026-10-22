@@ -11,15 +11,19 @@ Every Go backend service follows this structure, so an engineer (or Claude) who 
 
 ```
 cmd/server/            process entry: signals, config, exit code. Nothing else.
+cmd/openapi/           writes docs/openapi.json from the handlers' Docs (make openapi)
 cmd/<tool>/            other binaries (migrate, dev and ops tools): same shape, each calls one app.<Root>
 internal/
   app/                 composition root: builds every concrete type, owns the lifecycle
+                       (routes.go lists the handlers; openapi.go describes the API)
   config/              typed env config, validated once at boot
   api/                 HTTP transport (Gin)
     router.go          engine, middleware order, route mounting, http.Server
     middleware/        request id, New Relic, access log, recovery, limits, timeout
     response/          the one response body (Success, Error) + domain-error → HTTP-status mapping
-    handler/           one file per module: bind → call service → render
+    handler/           one file per module: bind → call service → render, plus Docs
+    apidoc/            OpenAPI 3.1 from the handlers' Docs and DTO types
+    openapi.go         Spec: checks Docs against the mounted routes, renders the document
   <transport>/         another way calls arrive (e.g. trigger/ for stream and queue events): decode → service → errors
   domain/<module>/     entities, invariants, use cases (Service), ports (interfaces)
   storage/<driver>/    adapters implementing domain ports (postgres, mongo, redis…)
@@ -31,7 +35,8 @@ internal/
     health/            readiness state and dependency checks
     requestid/         correlation id in context
 testdata/contract/     golden files of a contract shared with another service (optional)
-docs/                  this file, ADDING_A_MODULE.md, OBSERVABILITY.md, SECURITY.md
+docs/                  this file, ADDING_A_MODULE.md, OBSERVABILITY.md, SECURITY.md,
+                       openapi.json (generated: make openapi)
 ```
 
 ## The dependency rule
@@ -184,6 +189,18 @@ Inside a handler:
   - Binding tags check the wire shape: presence, types, ranges.
   - The domain checks business invariants, whatever transport the call came from.
 
+## API documentation
+
+Every service publishes `docs/openapi.json`, an OpenAPI 3.1 document generated from the code, so the frontend and mobile teams read the API from the branch they build against, not from a hand-written page that drifts.
+
+- **Docs live next to the routes.** Every handler has a `Docs() apidoc.Group` method beside `Register`. Each op names the route, its auth, its headers and parameters, its body, every success and every failure: status, code, message and when it happens.
+- **Schemas come from the code.** `internal/api/apidoc` reflects the request and response DTOs: `json` tags give the names, `binding` tags the rules, and an optional `doc:"…"` tag a description. A field the domain requires (rather than a binding tag) is marked `api:"required"`. A type with its own JSON methods implements `OpenAPISchema()`; the build fails until it does, so it is never described wrongly.
+- **Every scenario has an example.** The docs show each success and each failure as a complete response body, built the way `response.Success` and `response.Error` build them. Request and data examples come from the values written in `Docs`, or from an explicit JSON example; both are checked against the schema, so an example cannot drift from its type.
+- **Every header is listed:** the ones a route reads (`Authorization` through its scheme, `X-Request-ID`, the service's own), and the ones every response carries (`X-Request-ID` and the security headers).
+- **Coverage is checked.** `api.Spec` mounts every handler exactly as `NewRouter` does and fails when a mounted route has no docs or documented route is not mounted. Handlers are built in `internal/app/routes.go` by one `routes(services)` function that `New` and `OpenAPI` share; the spec is built with zero services, which works because a handler's constructor only stores what it is given and never calls it.
+- **Each branch carries its own spec.** `make openapi` writes `docs/openapi.json`; `internal/app/openapi_test.go` fails `make verify` when the committed file differs from the code. Checking out a branch or a release gives that branch's exact API.
+- **A service never serves its spec.** The docs portal reads `docs/openapi.json` from git, behind company sign-in. Serving it from the API would publish a map of every route to anyone who can reach the service.
+
 ## Testing strategy
 
 | Layer | How | Speed |
@@ -192,6 +209,7 @@ Inside a handler:
 | storage | integration tests against a real database, behind the `integration` build tag: the database comes from `<STORE>_TEST_URI` (a local server, a CI service container or testcontainers) and the tests skip when it is unset; each test uses its own database and drops it | s |
 | contract | golden files in `testdata/contract`: the producer's tests encode them, the consumer's decode them; identical copies in both repos | ms |
 | api | `httptest` through the real router and middleware (see `internal/api/router_test.go`) | ms |
+| api docs | `docs/openapi.json` equals what the handlers document (`internal/app/openapi_test.go`); `api.Spec` refuses undocumented routes | ms |
 | app | boots the process, probes it and shuts it down (see `internal/app/app_test.go`) | s |
 
 `make verify` (gofmt, vet, module integrity, race tests, build), `make lint` (including gosec) and `make vuln` (govulncheck) must pass before merge.

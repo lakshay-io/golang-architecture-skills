@@ -7,6 +7,7 @@ Claude Code skills that give every Go backend service the same production-grade 
 - New Relic
 - structured logging
 - graceful shutdown
+- an OpenAPI 3.1 spec generated from the handlers: every route, header, body and response scenario, with examples
 
 It's architecture only: no business features until you ask for them.
 
@@ -20,16 +21,17 @@ A generated service looks like this:
 
 ```
 cmd/server/          entrypoint: signals, config, exit code
+cmd/openapi/         writes docs/openapi.json from the handlers (make openapi)
 internal/app/        composition root: wiring and graceful lifecycle, as a process or in AWS Lambda
 internal/config/     typed env config, validated at boot
-internal/api/        Gin: router, middleware (security headers, limits), the one response body, handlers
+internal/api/        Gin: router, middleware (security headers, limits), the one response body, handlers with their Docs, apidoc (OpenAPI)
 internal/domain/     business modules (one package per bounded context)
 internal/storage/    database and cache adapters
 internal/platform/   apperr, logger, telemetry (New Relic), httpclient, health, requestid
-docs/                ARCHITECTURE.md, ADDING_A_MODULE.md, OBSERVABILITY.md, SECURITY.md (OWASP)
+docs/                ARCHITECTURE.md, ADDING_A_MODULE.md, OBSERVABILITY.md, SECURITY.md (OWASP), openapi.json (generated)
 ```
 
-It passes `make verify lint vuln` from the first commit: gofmt, vet, race-enabled tests, build, golangci-lint with gosec, and govulncheck. Security follows the OWASP API Security Top 10 and Top 10, mapped in [SECURITY.md](plugins/golang-architecture/skills/go-backend-scaffold/assets/template/docs/SECURITY.md). The full rules are in [ARCHITECTURE.md](plugins/golang-architecture/skills/go-backend-scaffold/assets/template/docs/ARCHITECTURE.md).
+It passes `make verify lint vuln` from the first commit: gofmt, vet, race-enabled tests (including a current `docs/openapi.json`), build, golangci-lint with gosec, and govulncheck. Security follows the OWASP API Security Top 10 and Top 10, mapped in [SECURITY.md](plugins/golang-architecture/skills/go-backend-scaffold/assets/template/docs/SECURITY.md). The full rules are in [ARCHITECTURE.md](plugins/golang-architecture/skills/go-backend-scaffold/assets/template/docs/ARCHITECTURE.md).
 
 ## Install (once per developer)
 
