@@ -81,8 +81,8 @@ Every service on this base is an API, so the checklist that matters is the **OWA
 
 **Risk:** forgotten versions or undocumented routes stay exposed.
 
-- **The base:** routes are mounted in one place (`internal/api/router.go`) under a version (`/v1`); `internal/app` logs every registered route at debug level.
-- **Every service:** documents every route (README or its API docs) with its auth, and removes a route's old version once no client calls it. A path copied from another system (a legacy path behind a load balancer) is listed with the reason.
+- **The base:** routes are mounted in one place (`internal/api/router.go`) under a version (`/v1`); `internal/app` logs every registered route at debug level. `docs/openapi.json` is the inventory: generated from every handler's `Docs`, refused by the build when a mounted route is undocumented, and kept current by `make verify`. It is read from git behind company sign-in, never served by the service.
+- **Every service:** documents every route in its handler's `Docs` with its auth, and removes a route's old version once no client calls it. A path copied from another system (a legacy path behind a load balancer) is listed with the reason.
 
 ### API10 Unsafe Consumption of APIs
 

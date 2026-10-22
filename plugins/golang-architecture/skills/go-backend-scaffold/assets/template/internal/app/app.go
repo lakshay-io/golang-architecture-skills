@@ -23,7 +23,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"example.com/goservice/internal/api"
-	"example.com/goservice/internal/api/handler"
 	"example.com/goservice/internal/config"
 	"example.com/goservice/internal/platform/health"
 	"example.com/goservice/internal/platform/logger"
@@ -74,7 +73,8 @@ func New(cfg config.Config) (*App, error) {
 	//	a.onShutdown("postgres", db.Close)
 	var checks []health.Checker
 
-	// ---- Domain services: one per module, built from adapters.
+	// ---- Domain services: one per module, built from adapters, collected for
+	// the handlers in services.
 	//
 	//	orders := order.NewService(postgres.NewOrderRepo(db), idgen.NewV7, time.Now)
 
@@ -83,12 +83,7 @@ func New(cfg config.Config) (*App, error) {
 	gin.SetMode(gin.ReleaseMode) // our own structured logs replace Gin's debug output
 	engine, err := api.NewRouter(
 		api.Options{Log: a.log, HTTP: cfg.HTTP, NewRelic: nr},
-		api.Routes{
-			Probes: []api.Registrar{handler.NewHealth(a.readiness, a.log)},
-			V1:     []api.Registrar{
-				// handler.NewOrderHandler(orders),
-			},
-		},
+		routes(services{readiness: a.readiness, log: a.log}),
 	)
 	if err != nil {
 		return nil, errors.Join(fmt.Errorf("build router: %w", err), a.close(context.Background()))

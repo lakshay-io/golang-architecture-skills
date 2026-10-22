@@ -1,6 +1,6 @@
 ---
 name: go-backend-scaffold
-description: Create the standard production architecture for a Go (Golang) backend service — Gin HTTP transport (also on AWS Lambda behind API Gateway), ports-and-adapters layout, New Relic monitoring, slog structured logging, typed env config, graceful shutdown, health probes, one response body for every status, OWASP-aligned security defaults, Makefile/Dockerfile/lint/govulncheck — as a compiling, tested base with no business features. It also holds the rules for every change in a service built from this base (one with internal/app, internal/api/response and internal/platform/apperr): load it before editing such a service, since services carry no CLAUDE.md. Use this whenever the user wants to start a new Go backend, service, microservice or API; asks for Go project structure, boilerplate, skeleton, base code or "the architecture"; asks how a Go service should be laid out; wants to add a new domain module to a service built from this base; or wants an existing Go service brought in line with the team standard — even if they never say "scaffold".
+description: Create the standard production architecture for a Go (Golang) backend service — Gin HTTP transport (also on AWS Lambda behind API Gateway), ports-and-adapters layout, New Relic monitoring, slog structured logging, typed env config, graceful shutdown, health probes, one response body for every status, OWASP-aligned security defaults, an OpenAPI 3.1 spec generated from the handlers (docs/openapi.json, every route, header, body and response scenario with examples, kept current by make verify), Makefile/Dockerfile/lint/govulncheck — as a compiling, tested base with no business features. It also holds the rules for every change in a service built from this base (one with internal/app, internal/api/response and internal/platform/apperr): load it before editing such a service, since services carry no CLAUDE.md. Use this whenever the user wants to start a new Go backend, service, microservice or API; asks for Go project structure, boilerplate, skeleton, base code or "the architecture"; asks how a Go service should be laid out; wants to add a new domain module or route to a service built from this base; wants a service's API documented, its OpenAPI or Swagger spec, or its docs updated; or wants an existing Go service brought in line with the team standard — even if they never say "scaffold".
 ---
 
 # Go backend scaffold
@@ -10,6 +10,7 @@ Produces the team's standard Go backend **architecture**: the skeleton every ser
 - **Stack:** Go 1.27+, Gin, New Relic (`go-agent/v3` with `nrgin` and `nrslog`), `log/slog`; the same binary serves HTTP or AWS Lambda (API Gateway HTTP API).
 - **Layout:** ports and adapters with a strict dependency rule.
 - **Security:** OWASP API Security Top 10 and Top 10 mapped in `docs/SECURITY.md`; `make lint` runs gosec, `make vuln` runs govulncheck.
+- **API docs:** `docs/openapi.json` (OpenAPI 3.1) is generated from every handler's `Docs` and DTO types by `make openapi`, and `make verify` fails when it is stale, so each branch carries its own spec.
 
 The architecture is fixed on purpose: every service looking the same is the point. Don't swap the framework, monitoring tool or layout per project unless the user explicitly asks.
 
@@ -30,11 +31,11 @@ The architecture is fixed on purpose: every service looking the same is the poin
 4. **Report back briefly:**
    - the tree;
    - `make run` and `/readyz`;
-   - where the docs are (`docs/ARCHITECTURE.md`, `docs/ADDING_A_MODULE.md`, `docs/OBSERVABILITY.md`, `docs/SECURITY.md`);
+   - where the docs are (`docs/ARCHITECTURE.md`, `docs/ADDING_A_MODULE.md`, `docs/OBSERVABILITY.md`, `docs/SECURITY.md`), and that `docs/openapi.json` is the generated API spec (`make openapi`);
    - that New Relic runs only when `APP_ENV=production`, where `NEW_RELIC_LICENSE_KEY` is required;
    - that the same binary serves API Gateway events when deployed to AWS Lambda.
 
-**Scope:** the scaffold is architecture only. Do not add domain modules, endpoints, database adapters or business logic unless the user asks for them. The empty `V1` route list in `internal/app/app.go` is intentional.
+**Scope:** the scaffold is architecture only. Do not add domain modules, endpoints, database adapters or business logic unless the user asks for them. The empty `V1` route list in `internal/app/routes.go` is intentional.
 
 ## Rules for every change in a service built on this base
 
@@ -50,6 +51,20 @@ Services built from this base carry no `CLAUDE.md`: these rules live here, so ev
 - Modules do not import each other: the module that acts declares a port, and `app` wires an adapter to the other module. Only a module defining a shared plug-in contract may be imported, by its plug-ins, one way.
 - Schema an adapter relies on (unique indexes, tables, time-series collections) is created by `cmd/migrate` and checked at startup. Other binaries live in `cmd/<tool>` and call one `app` function each.
 - `make verify`, `make lint` and `make vuln` must pass.
+
+## API documentation rules
+
+Every route is documented where it is mounted; `docs/ARCHITECTURE.md` ("API documentation") has the reasoning.
+
+- Every handler has `Docs() apidoc.Group` beside `Register`, listing op for op the routes `Register` mounts. `api.Spec` fails the build on a mounted route without an op, or an op without a route.
+- Each op gives: `Summary` (and `Description` when there is more to say), its auth (the group's `Auth`, an op's own, or `apidoc.Public`), every header it reads, path and query parameters with an `Example`, the `Body`, every `Success` and every `Error` the route itself returns, each with its stable `Code`, its real `Message` and `When` it happens, `Details` for a failure about fields. The standard failures (bad JSON, the auth scheme's, 500 `internal`, 504 `timeout`) are added by the build. Several outcomes at one status (`downtime_activated`, `downtime_deactivated`) are separate `Success` entries.
+- The values in `Docs` are the examples frontend developers copy: fill `Body` and `Data` with realistic data, never with real users' data. A DTO holding a type with its own JSON methods gives `Example` as JSON instead; every example is checked against its schema.
+- A type with a custom `UnmarshalJSON`/`MarshalJSON` implements `OpenAPISchema() apidoc.Schema` describing the JSON it really accepts. A field the domain requires, where no binding tag says so, gets `api:"required"`; `doc:"…"` describes a field.
+- One gin route serving several shapes (`/telemetry/:type`) is documented as one op per concrete value (`Path: "/telemetry/battery", Route: "/telemetry/:type"`), its body `apidoc.Fields(sharedDTO, "field", …).Require(…)`.
+- Handlers are listed in `internal/app/routes.go` (`routes(services)`), shared by `New` and `OpenAPI`. A handler's constructor only stores its arguments: the spec builds every handler with zero services. Routes mounted only for `APP_ENV=local` are appended in `New`, outside `routes`, and stay out of the spec.
+- `internal/app/openapi.go` holds the service's `apiInfo`: title, servers (local and staging, never production), and its token schemes with the failures their middleware returns.
+- After any change to a route, a DTO or a `Docs`, run `make openapi` and commit `docs/openapi.json`. `make verify` fails while it is stale.
+- Never serve the spec from the service; the docs portal reads it from git.
 
 ## Security rules (OWASP)
 
@@ -85,9 +100,10 @@ Every response, success or failure, in every service built on this base has the 
 
 Existing services do not change when the plugin does: the scaffold never overwrites files. When the user asks to bring services up to a new version:
 
-1. Render the template for the service's module path into a scratch directory (`scaffold.py <tmp> --module <module> --name <service>`) and diff every file against the service's copy. Infrastructure files (`internal/platform/*`, `internal/api/response`, `internal/api/middleware/{middleware,newrelic}.go`, `internal/api/handler/{bind,handler,health}.go`, `internal/api/router_test.go`, `docs/{ARCHITECTURE,ADDING_A_MODULE,OBSERVABILITY,SECURITY}.md`) should end up identical apart from the module path; service-specific code (`internal/app`, `internal/config`, `Makefile`, `.env.example`, `README.md`, domain, storage, handlers, the service's own docs) takes only the change, merged by hand.
+1. Render the template for the service's module path into a scratch directory (`scaffold.py <tmp> --module <module> --name <service>`) and diff every file against the service's copy. Infrastructure files (`internal/platform/*`, `internal/api/response`, `internal/api/apidoc/*`, `internal/api/{openapi,openapi_test}.go`, `internal/api/middleware/{middleware,newrelic}.go`, `internal/api/handler/{bind,handler,health}.go`, `internal/api/router_test.go`, `cmd/openapi`, `docs/{ARCHITECTURE,ADDING_A_MODULE,OBSERVABILITY,SECURITY}.md`) should end up identical apart from the module path; service-specific code (`internal/app`, `internal/config`, `Makefile`, `.env.example`, `README.md`, domain, storage, handlers, the service's own docs) takes only the change, merged by hand.
 2. Update every handler and test the change touches (for example, a new response helper means every `c.JSON` becomes `response.Success`).
 3. Delete a `CLAUDE.md` left by plugin 1.0.x: its rules are in this skill now.
+   From 1.2.x to 1.3.0: move the handler list from `app.New` into `internal/app/routes.go` (`services` + `routes`, keeping each feature's enable condition in `New`), add `internal/app/{openapi,openapi_test}.go` with the service's servers and token schemes, write `Docs` for every handler (texts from the service's existing API docs, checked against the code's codes and messages), implement `OpenAPISchema` on every custom JSON type, then `make openapi`.
 4. Run `make verify lint vuln` in each service, plus its integration tests. Toolchain or dependency upgrades in the template (`go.mod`, `Dockerfile`) are separate steps: ask before taking them into a deployed service. A reachable vulnerability from `make vuln` is fixed in the same sync.
 
 ## Adding a module (a feature area) to a scaffolded service
@@ -121,15 +137,19 @@ Do not rewrite it wholesale.
 
 ```
 cmd/server/            entry: signals, config, exit code
+cmd/openapi/           writes docs/openapi.json (make openapi)
 cmd/<tool>/            migrate, dev and ops tools: each calls one app.<Root>
-internal/app/          composition root: the ONLY place that knows concrete types; lifecycle; HTTP or Lambda
+internal/app/          composition root: the ONLY place that knows concrete types; lifecycle; HTTP or Lambda;
+                       routes.go (the handler list), openapi.go (the API's servers and token schemes)
 internal/config/       typed env config, validated at boot (all errors at once)
-internal/api/          Gin: router.go (middleware order, /v1 mounting, http.Server),
-                       middleware/, response/ (the one response body), handler/ (one file per module)
+internal/api/          Gin: router.go (middleware order, /v1 mounting, http.Server), openapi.go (Spec),
+                       middleware/, response/ (the one response body), handler/ (one file per module, with Docs),
+                       apidoc/ (OpenAPI 3.1 from Docs and DTO types)
 internal/<transport>/  other triggers (e.g. trigger/ for Kinesis/SQS events): decode → service → errors
 internal/domain/<m>/   entities, invariants, Service, ports — stdlib + platform/apperr ONLY
 internal/storage/<d>/  adapters implementing domain ports (+ New Relic driver integration)
 internal/platform/     apperr, logger, telemetry (New Relic), httpclient, health, requestid
+docs/openapi.json      the generated API spec: committed, kept current by make verify
 ```
 
 Rules that matter most. The full reasoning is in `${CLAUDE_SKILL_DIR}/assets/template/docs/ARCHITECTURE.md`; read it when a request touches structure.

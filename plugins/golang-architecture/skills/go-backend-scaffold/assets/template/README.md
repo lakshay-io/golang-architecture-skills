@@ -18,7 +18,8 @@ Requires Go 1.27+. An older local Go downloads the right toolchain automatically
 |---|---|
 | `make run` | Run locally with `.env` |
 | `make test` | All tests with the race detector |
-| `make verify` | gofmt, vet, module integrity, race tests, build |
+| `make openapi` | Regenerate `docs/openapi.json` from the handlers' `Docs` (commit it) |
+| `make verify` | gofmt, vet, module integrity, race tests (including a current `docs/openapi.json`), build |
 | `make lint` | golangci-lint (pinned; includes gosec) |
 | `make vuln` | govulncheck: known vulnerabilities the code can reach |
 | `make build` | Static binary in `bin/` |
@@ -30,9 +31,10 @@ CI runs `make verify lint vuln`; all three must pass before merge.
 
 ```
 cmd/server/          entrypoint
+cmd/openapi/         writes docs/openapi.json
 internal/app/        composition root: wiring and lifecycle
 internal/config/     typed env config
-internal/api/        Gin transport: router, middleware, response, handlers
+internal/api/        Gin transport: router, middleware, response, handlers, apidoc (OpenAPI)
 internal/domain/     business modules (one package per bounded context)
 internal/storage/    adapters for databases and caches
 internal/platform/   apperr, logger, telemetry (New Relic), httpclient, health, requestid
@@ -44,6 +46,7 @@ internal/platform/   apperr, logger, telemetry (New Relic), httpclient, health, 
 - [docs/ADDING_A_MODULE.md](docs/ADDING_A_MODULE.md): the shape of a new business module.
 - [docs/OBSERVABILITY.md](docs/OBSERVABILITY.md): New Relic, logs and tracing.
 - [docs/SECURITY.md](docs/SECURITY.md): the OWASP Top 10 and API Security Top 10, what the base covers and what every module must do.
+- [docs/openapi.json](docs/openapi.json): the API as OpenAPI 3.1, generated from the handlers (`make openapi`): every route, header, body and response, each scenario with an example.
 
 ## Running in production
 

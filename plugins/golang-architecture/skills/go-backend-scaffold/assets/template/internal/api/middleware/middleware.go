@@ -148,14 +148,25 @@ func BodyLimit(limit int64) gin.HandlerFunc {
 // the service over HTTPS it never falls back to plain HTTP (HSTS is ignored
 // on a plain-HTTP response, so local runs are unaffected).
 func SecureHeaders() gin.HandlerFunc {
+	headers := SecurityHeaders()
 	return func(c *gin.Context) {
 		h := c.Writer.Header()
-		h.Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
-		h.Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-		h.Set("X-Content-Type-Options", "nosniff")
-		h.Set("X-Frame-Options", "DENY")
-		h.Set("Referrer-Policy", "no-referrer")
-		h.Set("Cache-Control", "no-store")
+		for _, kv := range headers {
+			h.Set(kv[0], kv[1])
+		}
 		c.Next()
+	}
+}
+
+// SecurityHeaders are the name and value of every header SecureHeaders sets,
+// in order. The API docs list them on every response.
+func SecurityHeaders() [][2]string {
+	return [][2]string{
+		{"Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"},
+		{"Strict-Transport-Security", "max-age=31536000; includeSubDomains"},
+		{"X-Content-Type-Options", "nosniff"},
+		{"X-Frame-Options", "DENY"},
+		{"Referrer-Policy", "no-referrer"},
+		{"Cache-Control", "no-store"},
 	}
 }
