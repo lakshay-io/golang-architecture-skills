@@ -156,6 +156,11 @@ func (r *reflector) fieldSet(f FieldSet) (Schema, error) {
 			errs = append(errs, fmt.Errorf("Fields: Require(%q) names a field the set does not list", name))
 		}
 	}
+	for name := range f.consts {
+		if !slices.Contains(f.names, name) {
+			errs = append(errs, fmt.Errorf("Fields: Const(%q) names a field the set does not list", name))
+		}
+	}
 	if err := errors.Join(errs...); err != nil {
 		return nil, err
 	}
@@ -188,12 +193,17 @@ func (r *reflector) object(t reflect.Type, sel *FieldSet) (Schema, error) {
 		if sel != nil && !slices.Contains(sel.names, f.name) {
 			continue
 		}
-		s, err := r.field(f)
+		req := r.required(f, sel)
+		s, err := r.field(f, req)
 		if err != nil {
 			return nil, fmt.Errorf("%s.%s: %w", t, f.goName, err)
 		}
+		if v, fixed := sel.fixed(f.name); fixed {
+			delete(s, "enum")
+			s["const"] = v
+		}
 		props[f.name] = s
-		if r.required(f, sel) {
+		if req {
 			required = append(required, f.name)
 		}
 	}
@@ -207,8 +217,16 @@ func (r *reflector) object(t reflect.Type, sel *FieldSet) (Schema, error) {
 	return obj, nil
 }
 
-func (r *reflector) field(f jsonField) (Schema, error) {
-	s, err := r.of(f.typ)
+// field describes one field. A required pointer field of a request is not
+// nullable: the decoder reads null as nil, which the required rule refuses.
+func (r *reflector) field(f jsonField, required bool) (Schema, error) {
+	t := f.typ
+	if r.dir == decoded && required {
+		for t.Kind() == reflect.Pointer {
+			t = t.Elem()
+		}
+	}
+	s, err := r.of(t)
 	if err != nil {
 		return nil, err
 	}
@@ -226,6 +244,9 @@ func (r *reflector) field(f jsonField) (Schema, error) {
 
 func (r *reflector) required(f jsonField, sel *FieldSet) bool {
 	if sel != nil && slices.Contains(sel.required, f.name) {
+		return true
+	}
+	if _, fixed := sel.fixed(f.name); fixed {
 		return true
 	}
 	if r.dir == encoded {

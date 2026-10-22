@@ -20,7 +20,11 @@ import (
 var (
 	bodyErrors = []Error{
 		{Status: http.StatusBadRequest, Code: "invalid_json", Message: "request body is not valid JSON",
-			When: "The body is empty or not JSON, a field has the wrong type, or data follows the object."},
+			When: "The body is not JSON, or data follows the object."},
+		{Status: http.StatusBadRequest, Code: "invalid_json", Message: "request body must not be empty",
+			When: "There is no body."},
+		{Status: http.StatusBadRequest, Code: "invalid_json", Message: `field "qty" has the wrong type`,
+			When: "A field has the wrong type: the message names it as a JSON pointer, e.g. points/0/lat."},
 		{Status: http.StatusBadRequest, Code: "unknown_field", Message: `unknown field "colour"`,
 			When: "A field the route does not take, or a key in another case."},
 		{Status: http.StatusBadRequest, Code: "duplicate_field", Message: `field "name" appears more than once`,
@@ -308,32 +312,42 @@ func (b *builder) responses(op Op, g Group, authed bool, scheme Scheme) (Schema,
 		out[strconv.Itoa(status)] = r
 	}
 
-	failures := slices.Concat(op.Errors, g.Errors)
+	// The failures, by source, the route's own first. A code one source
+	// documents replaces a later source's description of it (the route's own
+	// over the standard one), while one source may document a code once per
+	// scenario: the same code with another message or When.
+	sources := [][]Error{op.Errors, g.Errors}
 	if authed {
-		failures = append(failures, scheme.Errors...)
+		sources = append(sources, scheme.Errors)
 	}
 	if op.Body != nil {
-		failures = append(failures, bodyErrors...)
+		sources = append(sources, bodyErrors)
 		if hasBindingRules(op.Body) {
-			failures = append(failures, validationError)
+			sources = append(sources, []Error{validationError})
 		}
 	}
-	failures = append(failures, everyRouteErrors...)
+	sources = append(sources, everyRouteErrors)
+	owner := map[string]int{} // code → the source that documents it
 	byStatus := map[int][]Error{}
 	var order []int
-	for _, e := range failures {
-		if e.Status < 400 || e.Status > 599 {
-			return nil, fmt.Errorf("error %q has status %d, not 4xx or 5xx", e.Code, e.Status)
-		}
-		if e.Code == "" {
-			return nil, fmt.Errorf("a %d error needs a Code", e.Status)
-		}
-		if _, seen := byStatus[e.Status]; !seen {
-			order = append(order, e.Status)
-		}
-		// The first description of a code wins: the route's own over the
-		// standard one.
-		if !slices.ContainsFunc(byStatus[e.Status], func(x Error) bool { return x.Code == e.Code }) {
+	for i, source := range sources {
+		for _, e := range source {
+			if e.Status < 400 || e.Status > 599 {
+				return nil, fmt.Errorf("error %q has status %d, not 4xx or 5xx", e.Code, e.Status)
+			}
+			if e.Code == "" {
+				return nil, fmt.Errorf("a %d error needs a Code", e.Status)
+			}
+			if first, seen := owner[e.Code]; seen && first != i {
+				continue
+			}
+			owner[e.Code] = i
+			if slices.ContainsFunc(byStatus[e.Status], func(x Error) bool { return x.Code == e.Code && x.When == e.When }) {
+				return nil, fmt.Errorf("error %q is documented twice with the same When", e.Code)
+			}
+			if _, seen := byStatus[e.Status]; !seen {
+				order = append(order, e.Status)
+			}
 			byStatus[e.Status] = append(byStatus[e.Status], e)
 		}
 	}
@@ -349,7 +363,9 @@ func (b *builder) responses(op Op, g Group, authed bool, scheme Scheme) (Schema,
 
 // successResponse merges the successes that share a status into one
 // response: its code is one of theirs, its data one of their shapes, and it
-// carries one complete example body per success.
+// carries one complete example body per success. A code may appear more than
+// once, one per scenario (a list with rows and an empty one), told apart by
+// When.
 func (b *builder) successResponse(status int, variants []Success) (Schema, error) {
 	var (
 		codes []any
@@ -359,14 +375,16 @@ func (b *builder) successResponse(status int, variants []Success) (Schema, error
 	)
 	named := Schema{}
 	headers := b.headers()
-	for _, v := range variants {
+	for i, v := range variants {
 		if v.Code == "" {
 			return nil, fmt.Errorf("a %d success needs a Code", status)
 		}
-		if slices.Contains(codes, any(v.Code)) {
-			return nil, fmt.Errorf("success code %q is documented twice", v.Code)
+		if slices.ContainsFunc(variants[:i], func(x Success) bool { return x.Code == v.Code && x.When == v.When }) {
+			return nil, fmt.Errorf("success %q is documented twice with the same When", v.Code)
 		}
-		codes = append(codes, v.Code)
+		if !slices.Contains(codes, any(v.Code)) {
+			codes = append(codes, v.Code)
+		}
 		lines = append(lines, describe(v.Code, v.When))
 
 		d, err := dataSchema(v.Data)
@@ -377,11 +395,11 @@ func (b *builder) successResponse(status int, variants []Success) (Schema, error
 			datas = append(datas, d)
 			types = append(types, reflect.TypeOf(v.Data))
 		}
-		ex, err := b.successExample(status, v, d)
+		ex, err := b.successExample(status, v, d, scenarios(variants, v.Code, func(s Success) string { return s.Code }) > 1)
 		if err != nil {
 			return nil, fmt.Errorf("success %q: %w", v.Code, err)
 		}
-		named[v.Code] = ex
+		named[exampleKey(named, v.Code)] = ex
 
 		for _, h := range v.Headers {
 			headers[h.Name] = responseHeader(h, v.Code, variants)
@@ -409,7 +427,7 @@ func (b *builder) successResponse(status int, variants []Success) (Schema, error
 	}, nil
 }
 
-func (b *builder) successExample(status int, v Success, d Schema) (Schema, error) {
+func (b *builder) successExample(status int, v Success, d Schema, several bool) (Schema, error) {
 	var data []byte
 	if v.Data != nil || v.Example != "" {
 		exs, err := examples(v.Data, v.Example, d)
@@ -428,7 +446,7 @@ func (b *builder) successExample(status int, v Success, d Schema) (Schema, error
 	if err != nil {
 		return nil, err
 	}
-	return namedValue(v.Code, v.When, raw), nil
+	return namedValue(v.Code, v.When, raw, several), nil
 }
 
 // errorResponse documents the failures that share a status: its code is one
@@ -438,7 +456,9 @@ func (b *builder) errorResponse(status int, list []Error) (Schema, error) {
 	lines := make([]string, 0, len(list))
 	named := Schema{}
 	for _, e := range list {
-		codes = append(codes, e.Code)
+		if !slices.Contains(codes, any(e.Code)) {
+			codes = append(codes, e.Code)
+		}
 		lines = append(lines, describe(e.Code, e.When))
 		msg := e.Message
 		if msg == "" {
@@ -448,7 +468,8 @@ func (b *builder) errorResponse(status int, list []Error) (Schema, error) {
 		if err != nil {
 			return nil, err
 		}
-		named[e.Code] = namedValue(e.Code, e.When, raw)
+		several := scenarios(list, e.Code, func(x Error) string { return x.Code }) > 1
+		named[exampleKey(named, e.Code)] = namedValue(e.Code, e.When, raw, several)
 	}
 	body, err := envelope(status, codes, nil)
 	if err != nil {
@@ -488,10 +509,37 @@ func responseHeader(h Param, code string, variants []Success) Schema {
 	return headerObject(h)
 }
 
-func namedValue(code, when string, raw []byte) Schema {
-	s := Schema{"summary": code, "value": jsontext.Value(raw)}
+// exampleKey names a response example: its code, then code-2, code-3 for
+// the next scenarios with the same code.
+func exampleKey(named Schema, code string) string {
+	key := code
+	for n := 2; named[key] != nil; n++ {
+		key = fmt.Sprintf("%s-%d", code, n)
+	}
+	return key
+}
+
+// namedValue is one example: labelled by its code, and by its When too when
+// the code has several scenarios, so the docs' example list tells them apart.
+func namedValue(code, when string, raw []byte, several bool) Schema {
+	summary := code
+	if several && when != "" {
+		summary = code + ": " + strings.TrimSuffix(when, ".")
+	}
+	s := Schema{"summary": summary, "value": jsontext.Value(raw)}
 	setIf(s, "description", when)
 	return s
+}
+
+// scenarios counts the entries documenting code.
+func scenarios[T any](list []T, code string, codeOf func(T) string) int {
+	n := 0
+	for _, x := range list {
+		if codeOf(x) == code {
+			n++
+		}
+	}
+	return n
 }
 
 // envelope is response.Body's schema for one status: the body every

@@ -215,6 +215,37 @@ func TestFieldsKeepsTheSelection(t *testing.T) {
 	}
 }
 
+func TestRequiredPointersAreNotNullableInRequests(t *testing.T) {
+	type point struct {
+		Lat *float64 `json:"lat" api:"required"`
+		Alt *float64 `json:"alt"`
+	}
+	req := reflectOf(t, decoded, point{})
+	if got := prop(t, req, "lat")["type"]; got != "number" {
+		t.Errorf("a required pointer refuses null in a request: lat = %v", got)
+	}
+	if got := prop(t, req, "alt")["type"]; !reflect.DeepEqual(got, []any{"number", "null"}) {
+		t.Errorf("an optional pointer takes null: alt = %v", got)
+	}
+	if got := prop(t, reflectOf(t, encoded, point{}), "lat")["type"]; !reflect.DeepEqual(got, []any{"number", "null"}) {
+		t.Errorf("a response pointer can be null: lat = %v", got)
+	}
+}
+
+func TestConstFixesADiscriminator(t *testing.T) {
+	s := reflectOf(t, decoded, Fields(dto{}, "name", "kind").Const("kind", "a"))
+	kind := prop(t, s, "kind")
+	if kind["const"] != "a" || kind["enum"] != nil {
+		t.Errorf("kind = %v, want const a and no enum", kind)
+	}
+	if got := s["required"]; !reflect.DeepEqual(got, []any{"name", "kind"}) {
+		t.Errorf("required = %v, want the fixed field too", got)
+	}
+	if _, err := newReflector(decoded).value(Fields(dto{}, "name").Const("kind", "a")); err == nil || !strings.Contains(err.Error(), `Const("kind")`) {
+		t.Errorf("Const outside the set: err = %v", err)
+	}
+}
+
 func TestExamplesAreCheckedAgainstTheSchema(t *testing.T) {
 	s := reflectOf(t, decoded, address{})
 	for raw, ok := range map[string]bool{

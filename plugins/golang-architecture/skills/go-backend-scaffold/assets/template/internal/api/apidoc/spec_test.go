@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"example.com/goservice/internal/api/apidoc"
 )
@@ -17,9 +18,10 @@ type createOrder struct {
 }
 
 type order struct {
-	ID   string `json:"id"`
-	Item string `json:"item"`
-	Qty  int    `json:"qty"`
+	ID        string     `json:"id"`
+	Item      string     `json:"item"`
+	Qty       int        `json:"qty"`
+	ShippedAt *time.Time `json:"shippedAt,omitempty"`
 }
 
 type pending struct {
@@ -37,6 +39,7 @@ var info = apidoc.Info{
 }
 
 func orders() apidoc.Group {
+	shipped := time.Date(2026, 10, 2, 9, 30, 0, 0, time.UTC) // a pointer to time.Time shows as time.Time does
 	return apidoc.Group{
 		Tag: "Orders", Description: "Orders and their items.", Auth: "userToken",
 		Headers: []apidoc.Param{{Name: "X-Tenant", Required: true, Example: "acme"}},
@@ -54,7 +57,7 @@ func orders() apidoc.Group {
 			{
 				Method: http.MethodGet, Path: "/orders/:id", ID: "getOrder", Summary: "Get an order",
 				PathParams: []apidoc.Param{{Name: "id", Pattern: "^o[0-9]+$", Example: "o1"}},
-				Success:    []apidoc.Success{{Status: 200, Code: "order_found", Data: order{ID: "o1", Item: "socks", Qty: 2}}},
+				Success:    []apidoc.Success{{Status: 200, Code: "order_found", Data: order{ID: "o1", Item: "socks", Qty: 2, ShippedAt: &shipped}}},
 			},
 			{
 				Method: http.MethodGet, Path: "/orders/stats", ID: "orderStats", Auth: apidoc.Public,
@@ -133,7 +136,7 @@ func TestBuildDocumentsEveryScenario(t *testing.T) {
 	// Failures: the route's own, the scheme's and the body's, each with an
 	// example; validation_failed because the body has binding rules.
 	for status, codes := range map[string][]string{
-		"400": {"invalid_json", "unknown_field", "duplicate_field", "validation_failed"},
+		"400": {"invalid_json", "invalid_json-2", "invalid_json-3", "unknown_field", "duplicate_field", "validation_failed"},
 		"401": {"unauthorized"},
 		"409": {"order_duplicate"},
 		"413": {"body_too_large"},
@@ -177,6 +180,38 @@ func TestBuildDocumentsEveryScenario(t *testing.T) {
 	}
 }
 
+func TestBuildShowsEveryScenarioOfACode(t *testing.T) {
+	g := apidoc.Group{Tag: "Orders", Ops: []apidoc.Op{{
+		Method: http.MethodGet, Path: "/orders", ID: "listOrders",
+		Success: []apidoc.Success{
+			{Status: 200, Code: "orders", When: "The customer has orders.", Data: []order{{ID: "o1", Item: "socks", Qty: 2}}},
+			{Status: 200, Code: "orders", When: "No order yet.", Data: []order{}},
+		},
+		Errors: []apidoc.Error{
+			{Status: 409, Code: "not_ready", Message: "The customer has no account yet", When: "Before sign-up."},
+			{Status: 409, Code: "not_ready", Message: "The account is being moved", When: "During a migration."},
+			{Status: 500, Code: "internal", Message: "internal error", When: "The order store failed."},
+		},
+	}}}
+	doc := build(t, g)
+	responses := at(t, doc, "paths", "/v1/orders", "get", "responses")
+	ok := at(t, responses, "200", "content", "application/json")
+	if at(t, ok, "examples", "orders", "description") != "The customer has orders." ||
+		at(t, ok, "examples", "orders-2", "description") != "No order yet." {
+		t.Errorf("both scenarios of orders need an example: %v", at(t, ok, "examples"))
+	}
+	if codes := at(t, ok, "schema", "properties", "code", "enum").([]any); len(codes) != 1 {
+		t.Errorf("the code enum lists a code once: %v", codes)
+	}
+	conflict := at(t, responses, "409", "content", "application/json", "examples")
+	if at(t, conflict, "not_ready-2", "value", "message") != "The account is being moved" {
+		t.Errorf("both scenarios of not_ready need an example: %v", conflict)
+	}
+	if at(t, responses, "500", "content", "application/json", "examples", "internal", "description") != "The order store failed." {
+		t.Error("a code the route documents replaces the standard description")
+	}
+}
+
 func TestBuildIsDeterministic(t *testing.T) {
 	mounts := []apidoc.Mount{{Prefix: "/v1", Group: orders()}}
 	a, errA := apidoc.Build(info, mounts)
@@ -214,6 +249,9 @@ func TestBuildRefuses(t *testing.T) {
 		"unknown path param":    {[]apidoc.Group{op(func(o *apidoc.Op) { o.PathParams = []apidoc.Param{{Name: "id"}} })}, "has no :id"},
 		"route mismatch":        {[]apidoc.Group{op(func(o *apidoc.Op) { o.Route = "/z/:id" })}, "not a value of route"},
 		"no success":            {[]apidoc.Group{op(func(o *apidoc.Op) { o.Success = nil })}, "no Success"},
+		"one scenario twice": {[]apidoc.Group{op(func(o *apidoc.Op) {
+			o.Success = []apidoc.Success{{Status: 200, Code: "ok"}, {Status: 200, Code: "ok"}}
+		})}, "twice with the same When"},
 		"example with an unknown field": {[]apidoc.Group{op(func(o *apidoc.Op) {
 			o.Method, o.Body, o.Example = http.MethodPost, createOrder{}, `{"item":"a","colour":"red"}`
 		})}, `no field "colour"`},
