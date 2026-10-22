@@ -123,6 +123,9 @@ func customJSONIn(t reflect.Type, seen map[reflect.Type]bool) reflect.Type {
 		return nil
 	}
 	seen[t] = true
+	if t.Kind() == reflect.Pointer {
+		return customJSONIn(t.Elem(), seen) // *time.Time is time.Time's JSON
+	}
 	if t == timeType || slices.Contains(rawTypes, t) {
 		return nil
 	}
@@ -130,7 +133,7 @@ func customJSONIn(t reflect.Type, seen map[reflect.Type]bool) reflect.Type {
 		return t
 	}
 	switch t.Kind() {
-	case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+	case reflect.Slice, reflect.Array, reflect.Map:
 		return customJSONIn(t.Elem(), seen)
 	case reflect.Struct:
 		for i := range t.NumField() {

@@ -9,7 +9,10 @@
 // spec of the code on it.
 package apidoc
 
-import "slices"
+import (
+	"maps"
+	"slices"
+)
 
 // Documented is implemented by every handler: Docs describes, op for op, the
 // routes its Register mounts.
@@ -69,11 +72,15 @@ type Op struct {
 	// against the Body's schema.
 	Example string
 	// Success lists every 2xx outcome. Outcomes with the same status merge
-	// into one response whose code is one of theirs.
+	// into one response whose code is one of theirs. A code may be listed
+	// once per scenario (a list with rows, and an empty one), with a When
+	// telling them apart: each is its own example.
 	Success []Success
-	// Errors lists the failures the route itself returns. Build adds the
+	// Errors lists the failures the route itself returns, a code once per
+	// scenario (another message or When) as for Success. Build adds the
 	// standard ones: the body errors when there is a Body, the auth scheme's,
-	// the group's, 500 internal and 504 timeout.
+	// the group's, 500 internal and 504 timeout. A code the route lists
+	// replaces the standard description of it.
 	Errors []Error
 }
 
@@ -182,6 +189,7 @@ type FieldSet struct {
 	dto      any
 	names    []string
 	required []string
+	consts   map[string]any
 	title    string
 }
 
@@ -189,6 +197,28 @@ type FieldSet struct {
 func (f FieldSet) Require(names ...string) FieldSet {
 	f.required = append(slices.Clone(f.required), names...)
 	return f
+}
+
+// Const fixes a field of the set to one value, and requires it: the
+// discriminator that tells OneOf variants of one shared DTO apart
+// (Const("type", "SCREEN_FREE_START")).
+func (f FieldSet) Const(name string, value any) FieldSet {
+	consts := maps.Clone(f.consts)
+	if consts == nil {
+		consts = map[string]any{}
+	}
+	consts[name] = value
+	f.consts = consts
+	return f
+}
+
+// fixed reports the value Const gave a field. A nil set fixes nothing.
+func (f *FieldSet) fixed(name string) (any, bool) {
+	if f == nil {
+		return nil, false
+	}
+	v, ok := f.consts[name]
+	return v, ok
 }
 
 // Title names the shape, shown for a variant of OneOf.
